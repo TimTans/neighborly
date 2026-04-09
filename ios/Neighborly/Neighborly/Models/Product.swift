@@ -1,6 +1,6 @@
 import Foundation
 
-struct Product: Codable, Identifiable, Hashable {
+struct Product: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let brand: String?
@@ -26,7 +26,7 @@ struct Product: Codable, Identifiable, Hashable {
     }
 }
 
-struct ProductCategory: Codable, Identifiable, Hashable {
+struct ProductCategory: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let slug: String
@@ -65,7 +65,7 @@ struct ProductCategory: Codable, Identifiable, Hashable {
     }
 }
 
-struct StoreProduct: Codable, Hashable {
+struct StoreProduct: Codable, Hashable, Sendable {
     let price: Double
     let salePrice: Double?
     let inStock: Bool
@@ -73,7 +73,7 @@ struct StoreProduct: Codable, Hashable {
     let stores: Store
 }
 
-struct Store: Codable, Hashable {
+struct Store: Codable, Hashable, Sendable {
     let id: String?
     let name: String
     let chain: String?
@@ -84,28 +84,30 @@ struct Store: Codable, Hashable {
     let lng: Double?
 }
 
-struct ProductSearchResponse: Codable {
+struct ProductSearchResponse: Codable, Sendable {
     let data: [Product]
     let count: Int
 }
 
 // MARK: - Route Optimization
 
-struct OptimizedRoute: Codable {
+struct OptimizedRoute: Codable, Sendable {
     let totalCost: Double
     let totalDistance: Double?
     let stops: [RouteStop]
     let itemsNotFound: [String]
+    let noRoute: Bool?
+    let noRouteReason: String?
 }
 
-struct RouteStop: Codable, Identifiable, Equatable {
+struct RouteStop: Codable, Identifiable, Equatable, Sendable {
     var id: String { store.id ?? store.name }
     let store: Store
     let items: [RouteItem]
     let subtotal: Double
 }
 
-struct RouteItem: Codable, Identifiable, Hashable {
+struct RouteItem: Codable, Identifiable, Hashable, Sendable {
     var id: String { productId }
     let productId: String
     let name: String
