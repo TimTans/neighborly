@@ -65,7 +65,7 @@ struct Preferences: Equatable {
 
     var enabledModes: Set<TransportMode> = [.walking, .publicTransport, .car]
 
-    var maxTravelDistanceMiles: Double = 5
+    var maxTravelDistanceMiles: Double = 10
     var maxStops: Double = 5
 
     var wellnessEnabled: Bool = true
@@ -181,6 +181,8 @@ struct PrimaryButton: View {
 
 struct PreferencesOneScrollView: View {
     @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")       private var savedMaxStops: Int    = 5
+    @AppStorage("maxRadiusMiles") private var savedMaxRadiusMiles: Double = 10
     @State private var prefs = Preferences()
 
     // When true, show the expanded wellness fields (your second screen content)
@@ -224,13 +226,25 @@ struct PreferencesOneScrollView: View {
                             .padding(14)
                             .background(cardBackground)
 
-                        // Sliders (simple placeholder; plug your slider UI back in)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Max Travel Distance").foregroundStyle(.secondary)
-                            Slider(value: $prefs.maxTravelDistanceMiles, in: 1...10, step: 1)
+                        // Sliders
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Text("Max Travel Distance").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(prefs.maxTravelDistanceMiles >= 11 ? "Unlimited" : "\(Int(prefs.maxTravelDistanceMiles)) mi")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(prefs.maxTravelDistanceMiles >= 11 ? Color.cyan : Color.secondary)
+                            }
+                            Slider(value: $prefs.maxTravelDistanceMiles, in: 1...11, step: 1)
 
-                            Text("Max Number of Stops").foregroundStyle(.secondary)
-                            Slider(value: $prefs.maxStops, in: 1...10, step: 1)
+                            HStack {
+                                Text("Max Number of Stops").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(prefs.maxStops >= 11 ? "Unlimited" : "\(Int(prefs.maxStops)) stop\(Int(prefs.maxStops) == 1 ? "" : "s")")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(prefs.maxStops >= 11 ? Color.cyan : Color.secondary)
+                            }
+                            Slider(value: $prefs.maxStops, in: 1...11, step: 1)
                         }
                         .padding(14)
                         .background(cardBackground)
@@ -243,7 +257,9 @@ struct PreferencesOneScrollView: View {
                         .padding(.top, 2)
 
                         PrimaryButton(title: "Save Preferences") {
-                            print("Saved:", prefs)
+                            savedPriority       = prefs.priority.rawValue
+                            savedMaxStops       = prefs.maxStops >= 11 ? 0 : Int(prefs.maxStops)
+                            savedMaxRadiusMiles = prefs.maxTravelDistanceMiles >= 11 ? 0.0 : prefs.maxTravelDistanceMiles
                         }
                         .padding(.top, 8)
 
@@ -269,6 +285,8 @@ struct PreferencesOneScrollView: View {
                 if let saved = Priority(rawValue: savedPriority) {
                     prefs.priority = saved
                 }
+                prefs.maxStops               = savedMaxStops == 0 ? 11 : Double(savedMaxStops)
+                prefs.maxTravelDistanceMiles = savedMaxRadiusMiles == 0 ? 11 : savedMaxRadiusMiles
             }
             .onChange(of: prefs.priority) { _, newValue in
                 savedPriority = newValue.rawValue
