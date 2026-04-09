@@ -24,6 +24,8 @@ class OptimizeRequest(BaseModel):
     user_lat: float | None = None
     user_lng: float | None = None
     mode: Literal["cost", "stops", "distance"] = "cost"
+    max_stops: int | None = None
+    max_radius_miles: float | None = None
 
 
 @router.post("/optimize")
@@ -44,16 +46,22 @@ async def optimize_route(body: OptimizeRequest):
             body.product_ids,
             user_lat=body.user_lat,
             user_lng=body.user_lng,
+            max_stops=body.max_stops,
+            max_radius_miles=body.max_radius_miles,
         )
     elif body.mode == "distance":
         return await optimize_shortest_distance(
             body.product_ids,
             user_lat=body.user_lat,
             user_lng=body.user_lng,
+            max_stops=body.max_stops,
+            max_radius_miles=body.max_radius_miles,
         )
     else:
         return await optimize_lowest_cost(
             body.product_ids,
             user_lat=body.user_lat,
             user_lng=body.user_lng,
+            max_stops=body.max_stops,
+            max_radius_miles=body.max_radius_miles,
         )
