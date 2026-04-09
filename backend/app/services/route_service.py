@@ -17,6 +17,8 @@ from itertools import combinations as _combinations
 
 from app.core.supabase import get_supabase
 
+def km_to_miles(km):
+    return km * 0.621371
 
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """distance in miles between two lat/lng points."""
