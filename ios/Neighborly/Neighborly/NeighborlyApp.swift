@@ -1,9 +1,17 @@
 import SwiftUI
 import SwiftData
+import MapboxMaps
 
 @main
 struct NeighborlyApp: App {
     @State private var authController = AuthController()
+
+    init() {
+        let token = AppConfig.mapboxAccessToken
+        if !token.isEmpty {
+            MapboxOptions.accessToken = token
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

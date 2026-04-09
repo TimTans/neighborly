@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		611080F82F74872E00334770 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 611080F72F74872E00334770 /* MapboxMaps */; };
 		613C69FF2F580FE10034BA8A /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 613C69FE2F580FE10034BA8A /* Auth */; };
 		613C6A012F580FE10034BA8A /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 613C6A002F580FE10034BA8A /* Functions */; };
 		613C6A032F580FE10034BA8A /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 613C6A022F580FE10034BA8A /* PostgREST */; };
@@ -68,6 +69,7 @@
 				613C6A092F580FE10034BA8A /* Supabase in Frameworks */,
 				613C69FF2F580FE10034BA8A /* Auth in Frameworks */,
 				613C6A072F580FE10034BA8A /* Storage in Frameworks */,
+				611080F82F74872E00334770 /* MapboxMaps in Frameworks */,
 				613C6A052F580FE10034BA8A /* Realtime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -89,6 +91,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		611080F62F74872E00334770 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		613C6A0C2F5813A60034BA8A /* Config */ = {
 			isa = PBXGroup;
 			children = (
@@ -106,6 +115,7 @@
 				61AA92A82F3BB40F006F82F4 /* NeighborlyUITests */,
 				61AA928F2F3BB40D006F82F4 /* Products */,
 				613C6A0C2F5813A60034BA8A /* Config */,
+				611080F62F74872E00334770 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -145,6 +155,7 @@
 				613C6A042F580FE10034BA8A /* Realtime */,
 				613C6A062F580FE10034BA8A /* Storage */,
 				613C6A082F580FE10034BA8A /* Supabase */,
+				611080F72F74872E00334770 /* MapboxMaps */,
 			);
 			productName = Neighborly;
 			productReference = 61AA928E2F3BB40D006F82F4 /* Neighborly.app */;
@@ -230,6 +241,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				613C69FD2F580FE10034BA8A /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				61E955CD2F747B66002C49F0 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 61AA928F2F3BB40D006F82F4 /* Products */;
@@ -626,9 +638,22 @@
 				minimumVersion = 2.5.1;
 			};
 		};
+		61E955CD2F747B66002C49F0 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		611080F72F74872E00334770 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 61E955CD2F747B66002C49F0 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */;
+			productName = MapboxMaps;
+		};
 		613C69FE2F580FE10034BA8A /* Auth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 613C69FD2F580FE10034BA8A /* XCRemoteSwiftPackageReference "supabase-swift" */;

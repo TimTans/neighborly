@@ -9,22 +9,25 @@ final class GroceryListItem {
     var upc: String
     var quantity: Int
     var dateAdded: Date
+    var productId: String?
 
-    init(name: String, price: Double, unitSize: String, upc: String, quantity: Int = 1) {
+    init(name: String, price: Double, unitSize: String, upc: String, quantity: Int = 1, productId: String? = nil) {
         self.name = name
         self.price = price
         self.unitSize = unitSize
         self.upc = upc
         self.quantity = quantity
         self.dateAdded = Date()
+        self.productId = productId
     }
 
-    convenience init(from shopRiteItem: ShopRiteItem) {
+    convenience init(from product: Product) {
         self.init(
-            name: shopRiteItem.name,
-            price: shopRiteItem.price,
-            unitSize: shopRiteItem.unitSize,
-            upc: shopRiteItem.upc
+            name: product.name,
+            price: product.bestPrice ?? 0,
+            unitSize: product.unitSize,
+            upc: product.upc,
+            productId: product.id
         )
     }
 }

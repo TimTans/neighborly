@@ -6,5 +6,16 @@
 	<string>$(SUPABASE_URL)</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>API_BASE_URL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>MAPBOX_ACCESS_TOKEN</key>
+	<string>$(MAPBOX_ACCESS_TOKEN)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Neighborly uses your location to find the closest stores when prices are tied.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

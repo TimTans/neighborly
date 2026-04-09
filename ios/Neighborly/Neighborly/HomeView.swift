@@ -431,7 +431,7 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func routeStopRow(_ stop: RouteStop) -> some View {
+    private func routeStopRow(_ stop: HomeRouteStop) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Circle()
                 .fill(NeighborlyTheme.green)

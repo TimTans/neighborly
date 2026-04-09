@@ -27,4 +27,26 @@ enum AppConfig {
         }
         return key
     }()
+
+    static let apiBaseURL: URL = {
+        guard let urlString = Bundle.main.infoDictionary?["API_BASE_URL"] as? String,
+              !urlString.isEmpty,
+              let url = URL(string: urlString) else {
+            fatalError(
+                "API_BASE_URL not configured. "
+                + "Set API_BASE_URL in Config/Secrets.xcconfig "
+                + "to your backend URL (e.g. http://localhost:8000)."
+            )
+        }
+        return url
+    }()
+
+    static let mapboxAccessToken: String = {
+        guard let token = Bundle.main.infoDictionary?["MAPBOX_ACCESS_TOKEN"] as? String,
+              !token.isEmpty,
+              token != "YOUR_MAPBOX_PUBLIC_TOKEN" else {
+            return ""
+        }
+        return token
+    }()
 }

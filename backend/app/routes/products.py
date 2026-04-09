@@ -32,6 +32,15 @@ async def get_product(product_id: str):
     return product
 
 
+@router.get("/{product_id}/alternatives")
+async def get_alternatives(
+    product_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    """find alternative products in the same category."""
+    return await product_service.get_alternatives(product_id, limit=limit)
+
+
 @router.get("/{product_id}/prices")
 async def get_product_prices(product_id: str):
     """get price comparison across all stores for a product, sorted cheapest first."""

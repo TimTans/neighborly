@@ -14,7 +14,7 @@ struct HomeMetric: Identifiable {
     }
 }
 
-struct RouteStop: Identifiable {
+struct HomeRouteStop: Identifiable {
     let id = UUID()
     let index: Int
     let name: String
@@ -41,9 +41,9 @@ final class HomeViewModel {
 
     let savingsBarHeights: [CGFloat] = [0.4, 0.7, 0.5, 0.9, 0.6]
 
-    let routeStops: [RouteStop] = [
-        RouteStop(index: 1, name: "Aldi", address: "142 Atlantic Ave", distance: "0.8 mi", timeEstimate: "12 min", itemsLabel: "3 items"),
-        RouteStop(index: 2, name: "Trader Joe's", address: "130 Court St", distance: "1.2 mi", timeEstimate: "8 min", itemsLabel: "4 items"),
-        RouteStop(index: 3, name: "Costco", address: "976 3rd Ave", distance: "2.4 mi", timeEstimate: "15 min", itemsLabel: "2 items")
+    let routeStops: [HomeRouteStop] = [
+        HomeRouteStop(index: 1, name: "Aldi", address: "142 Atlantic Ave", distance: "0.8 mi", timeEstimate: "12 min", itemsLabel: "3 items"),
+        HomeRouteStop(index: 2, name: "Trader Joe's", address: "130 Court St", distance: "1.2 mi", timeEstimate: "8 min", itemsLabel: "4 items"),
+        HomeRouteStop(index: 3, name: "Costco", address: "976 3rd Ave", distance: "2.4 mi", timeEstimate: "15 min", itemsLabel: "2 items")
     ]
 }
