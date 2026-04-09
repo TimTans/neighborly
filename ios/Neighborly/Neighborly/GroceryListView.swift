@@ -105,6 +105,8 @@ struct GroceryListView: View {
     @Binding var selectedTab: Int
 
     @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")       private var maxStops: Int    = 5
+    @AppStorage("maxRadiusMiles") private var maxRadiusMiles: Double = 10
     @State private var searchText = ""
     @State private var searchResults: [Product] = []
     @State private var isSearching = false
@@ -164,6 +166,11 @@ struct GroceryListView: View {
                     searchResults = []
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .alert("No Route Found", isPresented: showNoRouteAlert) {
+                Button("OK") { routeState.noRouteReason = nil }
+            } message: {
+                Text("No route found with your preferences (Max radius or max stops)")
             }
         }
         .task(id: searchText) {
@@ -449,6 +456,13 @@ struct GroceryListView: View {
         .padding(.bottom, 8)
     }
 
+    private var showNoRouteAlert: Binding<Bool> {
+        Binding(
+            get: { routeState.noRouteReason != nil },
+            set: { if !$0 { routeState.noRouteReason = nil } }
+        )
+    }
+
     private func optimizeRoute() async {
         let productIds = items.compactMap { $0.productId }
         guard !productIds.isEmpty else {
@@ -456,25 +470,31 @@ struct GroceryListView: View {
             return
         }
 
-        routeState.isOptimizing = true
-        routeState.error = nil
+        routeState.isOptimizing  = true
+        routeState.error         = nil
+        routeState.noRouteReason = nil
 
         do {
-            let loc = await locationHelper.requestLocation()
+            let loc  = await locationHelper.requestLocation()
             let mode = Priority(rawValue: savedPriority)?.backendMode ?? "cost"
             let route = try await APIService.optimizeRoute(
-                productIds: productIds,
-                userLat: loc?.coordinate.latitude,
-                userLng: loc?.coordinate.longitude,
-                mode: mode
+                productIds:     productIds,
+                userLat:        loc?.coordinate.latitude,
+                userLng:        loc?.coordinate.longitude,
+                mode:           mode,
+                maxStops:       maxStops == 0 ? nil : maxStops,
+                maxRadiusMiles: maxRadiusMiles == 0 ? nil : maxRadiusMiles
             )
-            routeState.optimizedRoute = route
-            routeState.isOptimizing = false
-            selectedTab = 2
+            if route.noRoute == true {
+                routeState.noRouteReason = route.noRouteReason ?? "constraints"
+            } else {
+                routeState.optimizedRoute = route
+                selectedTab = 2
+            }
         } catch {
             routeState.error = "Couldn't optimize route"
-            routeState.isOptimizing = false
         }
+        routeState.isOptimizing = false
     }
 
     // MARK: - Actions

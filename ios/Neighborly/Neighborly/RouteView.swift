@@ -7,6 +7,8 @@ struct RouteView: View {
     var routeState: RouteState
 
     @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")       private var maxStops: Int    = 5
+    @AppStorage("maxRadiusMiles") private var maxRadiusMiles: Double = 10
 
     @State private var swapItem: RouteItem?
     @State private var alternatives: [Product] = []
@@ -320,7 +322,12 @@ struct RouteView: View {
             routeState.isOptimizing = true
             do {
                 let mode = Priority(rawValue: savedPriority)?.backendMode ?? "cost"
-                let route = try await APIService.optimizeRoute(productIds: productIds, mode: mode)
+                let route = try await APIService.optimizeRoute(
+                    productIds:     productIds,
+                    mode:           mode,
+                    maxStops:       maxStops == 0 ? nil : maxStops,
+                    maxRadiusMiles: maxRadiusMiles == 0 ? nil : maxRadiusMiles
+                )
                 routeState.optimizedRoute = route
             } catch {
                 routeState.error = "Couldn't re-optimize route"
