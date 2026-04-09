@@ -4,6 +4,7 @@ import pytest
 
 from app.services.route_service import (
     _compute_route_distance,
+    _filter_by_radius,
     _haversine,
     _order_stops_nearest_neighbor,
     _two_opt,
@@ -233,3 +234,111 @@ async def test_items_not_found_across_modes():
             result = await optimize_fn(["p1", "p_missing"], 40.0, -74.0)
         assert "p_missing" in result["items_not_found"]
         assert result["total_cost"] == 5.00
+
+
+# -- filter by radius --
+
+def test_filter_by_radius_excludes_distant_store():
+    near = [{"stores": {"lat": 40.1, "lng": -74.0}}]
+    far  = [{"stores": {"lat": 42.0, "lng": -74.0}}]
+    result = _filter_by_radius({"near": near, "far": far}, 40.0, -74.0, 20.0)
+    assert "near" in result
+    assert "far" not in result
+
+
+def test_filter_by_radius_empty_when_all_beyond():
+    far = [{"stores": {"lat": 45.0, "lng": -74.0}}]
+    assert _filter_by_radius({"s1": far}, 40.0, -74.0, 5.0) == {}
+
+
+def test_filter_by_radius_keeps_store_within_limit():
+    store = [{"stores": {"lat": 40.05, "lng": -74.0}}]
+    result = _filter_by_radius({"s1": store}, 40.0, -74.0, 10.0)
+    assert "s1" in result
+
+
+@pytest.mark.asyncio
+async def test_fewest_stops_caps_at_max_stops():
+    # s1 has p1 only, s2 has p2 only — need 2 stores; max_stops=1 forces 1
+    offerings = [
+        _make_offering("s1", "p1", 2.00, None, 40.0, -74.0, "milk",  "store a"),
+        _make_offering("s2", "p2", 2.00, None, 40.1, -74.0, "bread", "store b"),
+    ]
+    with _mock_supabase(offerings):
+        result = await optimize_fewest_stops(["p1", "p2"], 40.0, -74.0, max_stops=1)
+    assert len(result["stops"]) == 1
+    assert len(result["items_not_found"]) == 1
+    assert result["no_route"] is False
+
+
+@pytest.mark.asyncio
+async def test_fewest_stops_no_route_when_all_stores_beyond_radius():
+    offerings = [_make_offering("s1", "p1", 2.00, None, 45.0, -74.0, "milk", "store a")]
+    with _mock_supabase(offerings):
+        result = await optimize_fewest_stops(
+            ["p1"], user_lat=40.0, user_lng=-74.0, max_radius_miles=5.0
+        )
+    assert result["no_route"] is True
+    assert result["no_route_reason"] == "max_radius"
+    assert result["stops"] == []
+
+
+@pytest.mark.asyncio
+async def test_fewest_stops_no_route_when_max_stops_is_zero():
+    offerings = [_make_offering("s1", "p1", 2.00, None, 40.0, -74.0, "milk", "store a")]
+    with _mock_supabase(offerings):
+        result = await optimize_fewest_stops(["p1"], 40.0, -74.0, max_stops=0)
+    assert result["no_route"] is True
+    assert result["no_route_reason"] == "max_stops"
+    assert result["stops"] == []
+    assert "p1" in result["items_not_found"]
+
+
+@pytest.mark.asyncio
+async def test_shortest_distance_caps_at_max_stops():
+    # s1 has p1 only, s2 has p2 only — max_stops=1 means no valid combo
+    offerings = [
+        _make_offering("s1", "p1", 2.00, None, 40.0, -74.0, "milk",  "store a"),
+        _make_offering("s2", "p2", 2.00, None, 40.1, -74.0, "bread", "store b"),
+    ]
+    with _mock_supabase(offerings):
+        result = await optimize_shortest_distance(["p1", "p2"], 40.0, -74.0, max_stops=1)
+    # max_k=1, neither single store covers both products → no valid combo
+    assert result["no_route"] is True
+    assert result["stops"] == []
+
+
+@pytest.mark.asyncio
+async def test_shortest_distance_no_route_when_all_stores_beyond_radius():
+    offerings = [_make_offering("s1", "p1", 2.00, None, 45.0, -74.0, "milk", "store a")]
+    with _mock_supabase(offerings):
+        result = await optimize_shortest_distance(
+            ["p1"], user_lat=40.0, user_lng=-74.0, max_radius_miles=5.0
+        )
+    assert result["no_route"] is True
+    assert result["no_route_reason"] == "max_radius"
+
+
+@pytest.mark.asyncio
+async def test_lowest_cost_no_route_when_too_many_stops():
+    # p1 cheapest at s1, p2 cheapest at s2 → 2 stops needed; max_stops=1
+    offerings = [
+        _make_offering("s1", "p1", 2.00, None, 40.0, -74.0, "milk",  "store a"),
+        _make_offering("s2", "p2", 2.00, None, 40.1, -74.0, "bread", "store b"),
+    ]
+    with _mock_supabase(offerings):
+        result = await optimize_lowest_cost(["p1", "p2"], 40.0, -74.0, max_stops=1)
+    assert result["no_route"] is True
+    assert result["no_route_reason"] == "max_stops"
+    assert result["stops"] == []
+
+
+@pytest.mark.asyncio
+async def test_lowest_cost_no_route_when_all_stores_beyond_radius():
+    offerings = [_make_offering("s1", "p1", 2.00, None, 45.0, -74.0, "milk", "store a")]
+    with _mock_supabase(offerings):
+        result = await optimize_lowest_cost(
+            ["p1"], user_lat=40.0, user_lng=-74.0, max_radius_miles=5.0
+        )
+    assert result["no_route"] is True
+    assert result["no_route_reason"] == "max_radius"

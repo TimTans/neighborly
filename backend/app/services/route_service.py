@@ -20,6 +20,7 @@ from app.core.supabase import get_supabase
 def km_to_miles(km):
     return km * 0.621371
 
+
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """distance in miles between two lat/lng points."""
     R = 3958.8  # earth radius in miles
@@ -34,6 +35,26 @@ def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _filter_by_radius(
+    store_offerings: dict[str, list[dict]],
+    user_lat: float,
+    user_lng: float,
+    max_radius_miles: float,
+) -> dict[str, list[dict]]:
+    """remove stores beyond max_radius_miles from the user."""
+    result = {}
+    for sid, offerings in store_offerings.items():
+        if not offerings:
+            continue
+        lat = offerings[0]["stores"].get("lat")
+        lng = offerings[0]["stores"].get("lng")
+        if lat is None or lng is None:
+            continue
+        if _haversine(user_lat, user_lng, lat, lng) <= max_radius_miles:
+            result[sid] = offerings
+    return result
+
+
 def _effective_price(offering: dict) -> float:
     """get the price the customer actually pays."""
     return offering["sale_price"] if offering["sale_price"] else offering["price"]
@@ -43,6 +64,8 @@ async def optimize_lowest_cost(
     product_ids: list[str],
     user_lat: float | None = None,
     user_lng: float | None = None,
+    max_stops: int | None = None,
+    max_radius_miles: float | None = None,
 ) -> dict:
     """
     optimize a grocery list for lowest total cost.
@@ -74,9 +97,25 @@ async def optimize_lowest_cost(
         "product_categories(slug))"
     ).in_("product_id", product_ids).eq("in_stock", True).execute()
 
+    no_route_reason: str | None = None
+    rows = result.data
+
+    if max_radius_miles is not None and user_lat is not None and user_lng is not None:
+        in_radius_sids = {
+            row["store_id"] for row in rows
+            if _haversine(
+                user_lat, user_lng,
+                row["stores"].get("lat") or 0,
+                row["stores"].get("lng") or 0,
+            ) <= max_radius_miles
+        }
+        if rows and not in_radius_sids:
+            no_route_reason = "max_radius"
+        rows = [row for row in rows if row["store_id"] in in_radius_sids]
+
     # group by product_id → list of store offerings
     offerings: dict[str, list[dict]] = {}
-    for row in result.data:
+    for row in rows:
         pid = row["product_id"]
         offerings.setdefault(pid, []).append(row)
 
@@ -116,6 +155,16 @@ async def optimize_lowest_cost(
 
         _assign_to_stop(stops, best)
 
+    if max_stops is not None and len(stops) > max_stops:
+        return {
+            "total_cost": 0.0,
+            "total_distance": 0.0,
+            "stops": [],
+            "items_not_found": list(product_ids),
+            "no_route": True,
+            "no_route_reason": "max_stops",
+        }
+
     # order stops by nearest-neighbor from user location
     sorted_stops = _order_stops_nearest_neighbor(
         list(stops.values()), user_lat, user_lng,
@@ -131,6 +180,8 @@ async def optimize_lowest_cost(
         "total_distance": _compute_route_distance(sorted_stops, user_lat, user_lng),
         "stops": sorted_stops,
         "items_not_found": items_not_found,
+        "no_route": len(sorted_stops) == 0,
+        "no_route_reason": no_route_reason if len(sorted_stops) == 0 else None,
     }
 
 
@@ -138,16 +189,14 @@ async def optimize_fewest_stops(
     product_ids: list[str],
     user_lat: float | None = None,
     user_lng: float | None = None,
+    max_stops: int | None = None,
+    max_radius_miles: float | None = None,
 ) -> dict:
     """
     optimize a grocery list for the fewest number of store visits.
 
     uses greedy set cover: repeatedly pick the store that covers the most
     uncovered products. tiebreak on lowest cost, then closest to user.
-
-    # todo: to integrate max_stops, stop the greedy loop when len(chosen)
-    # reaches max_stops. any uncovered products after that go into
-    # items_not_found (or a separate "overflow" list the ui can show).
     """
     sb = get_supabase()
 
@@ -165,15 +214,33 @@ async def optimize_fewest_stops(
         store_offerings.setdefault(row["store_id"], []).append(row)
         product_available.setdefault(row["product_id"], []).append(row)
 
+    no_route_reason: str | None = None
+
+    # apply radius filter
+    if max_radius_miles is not None and user_lat is not None and user_lng is not None:
+        pre_count = len(store_offerings)
+        store_offerings = _filter_by_radius(store_offerings, user_lat, user_lng, max_radius_miles)
+        if pre_count > 0 and not store_offerings:
+            no_route_reason = "max_radius"
+        in_radius_sids = set(store_offerings.keys())
+        product_available = {
+            pid: [o for o in offs if o["store_id"] in in_radius_sids]
+            for pid, offs in product_available.items()
+        }
+        product_available = {pid: offs for pid, offs in product_available.items() if offs}
+
     items_not_found = [pid for pid in product_ids if pid not in product_available]
     uncovered = set(product_available.keys())
     chosen_store_ids: list[str] = []
 
     # greedy set cover
-    # todo: add `and len(chosen_store_ids) < max_stops` to this condition
-    # to cap the number of stores. uncovered items after the cap would go
-    # into items_not_found.
     while uncovered:
+        if max_stops is not None and len(chosen_store_ids) >= max_stops:
+            items_not_found.extend(uncovered)
+            uncovered = set()
+            no_route_reason = "max_stops"
+            break
+
         best_sid = None
         best_count = 0
         best_cost = float("inf")
@@ -250,6 +317,8 @@ async def optimize_fewest_stops(
         "total_distance": _compute_route_distance(sorted_stops, user_lat, user_lng),
         "stops": sorted_stops,
         "items_not_found": items_not_found,
+        "no_route": len(sorted_stops) == 0,
+        "no_route_reason": no_route_reason if len(sorted_stops) == 0 else None,
     }
 
 
@@ -257,6 +326,8 @@ async def optimize_shortest_distance(
     product_ids: list[str],
     user_lat: float | None = None,
     user_lng: float | None = None,
+    max_stops: int | None = None,
+    max_radius_miles: float | None = None,
 ) -> dict:
     """
     optimize a grocery list for shortest total travel distance.
@@ -266,9 +337,6 @@ async def optimize_shortest_distance(
     uses 2-opt to optimize stop ordering within each candidate set.
 
     tiebreaks on cost when distances are equal.
-
-    # todo: to integrate max_stops, cap max_k below at max_stops. any
-    # products not covered within that limit go into items_not_found.
     """
     sb = get_supabase()
 
@@ -284,6 +352,20 @@ async def optimize_shortest_distance(
     for row in result.data:
         store_offerings.setdefault(row["store_id"], []).append(row)
         product_available.setdefault(row["product_id"], []).append(row)
+
+    no_route_reason: str | None = None
+
+    if max_radius_miles is not None and user_lat is not None and user_lng is not None:
+        pre_count = len(store_offerings)
+        store_offerings = _filter_by_radius(store_offerings, user_lat, user_lng, max_radius_miles)
+        if pre_count > 0 and not store_offerings:
+            no_route_reason = "max_radius"
+        in_radius_sids = set(store_offerings.keys())
+        product_available = {
+            pid: [o for o in offs if o["store_id"] in in_radius_sids]
+            for pid, offs in product_available.items()
+        }
+        product_available = {pid: offs for pid, offs in product_available.items() if offs}
 
     items_not_found = [pid for pid in product_ids if pid not in product_available]
     needed = set(product_available.keys())
@@ -302,7 +384,7 @@ async def optimize_shortest_distance(
     best_combo = None
     best_distance = float("inf")
     best_cost = float("inf")
-    max_k = min(len(candidate_sids), 5)
+    max_k = min(len(candidate_sids), max_stops if max_stops is not None else 5)
 
     for k in range(1, max_k + 1):
         for combo in _combinations(candidate_sids, k):
@@ -369,6 +451,8 @@ async def optimize_shortest_distance(
         "total_distance": _compute_route_distance(sorted_stops, user_lat, user_lng),
         "stops": sorted_stops,
         "items_not_found": items_not_found,
+        "no_route": len(sorted_stops) == 0,
+        "no_route_reason": no_route_reason if len(sorted_stops) == 0 else None,
     }
 
 
