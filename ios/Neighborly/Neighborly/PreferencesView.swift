@@ -1,4 +1,5 @@
 import SwiftUI
+import Auth
 
 // Added to fix some issue with destination in HomeView
 struct PreferencesView: View {
@@ -180,10 +181,29 @@ struct PrimaryButton: View {
 // MARK: - Single Screen
 
 struct PreferencesOneScrollView: View {
-    @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
-    @AppStorage("maxStops")       private var savedMaxStops: Int    = 5
-    @AppStorage("maxRadiusMiles") private var savedMaxRadiusMiles: Double = 10
+    @Environment(AuthController.self) private var authController
+    @AppStorage("optimizationMode")           private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")                   private var savedMaxStops: Int    = 5
+    @AppStorage("maxRadiusMiles")             private var savedMaxRadiusMiles: Double = 10
+    @AppStorage("walkingEnabled")             private var savedWalkingEnabled: Bool = true
+    @AppStorage("publicTransportEnabled")     private var savedPublicTransportEnabled: Bool = true
+    @AppStorage("carEnabled")                 private var savedCarEnabled: Bool = true
+    @AppStorage("wellnessEnabled")            private var savedWellnessEnabled: Bool = true
+    @AppStorage("cholesterolLimit")           private var savedCholesterolLimit: String = ""
+    @AppStorage("sodiumLimit")                private var savedSodiumLimit: String = ""
+    @AppStorage("sugarLimit")                 private var savedSugarLimit: String = ""
+    @AppStorage("dietVegan")                  private var savedDietVegan: Bool = false
+    @AppStorage("dietGlutenFree")             private var savedDietGlutenFree: Bool = true
+    @AppStorage("dietLowCarb")                private var savedDietLowCarb: Bool = false
+    @AppStorage("dietKosher")                 private var savedDietKosher: Bool = false
+    @AppStorage("dietHalal")                  private var savedDietHalal: Bool = false
+    @AppStorage("dietKeto")                   private var savedDietKeto: Bool = false
+    @AppStorage("avoidDairy")                 private var savedAvoidDairy: Bool = false
+    @AppStorage("avoidPeanuts")               private var savedAvoidPeanuts: Bool = true
+    @AppStorage("avoidShellfish")             private var savedAvoidShellfish: Bool = false
+    @AppStorage("avoidWheat")                 private var savedAvoidWheat: Bool = false
     @State private var prefs = Preferences()
+    @State private var didSave = false
 
     // When true, show the expanded wellness fields (your second screen content)
     @State private var wellnessExpanded: Bool = false
@@ -256,10 +276,35 @@ struct PreferencesOneScrollView: View {
                         )
                         .padding(.top, 2)
 
-                        PrimaryButton(title: "Save Preferences") {
-                            savedPriority       = prefs.priority.rawValue
-                            savedMaxStops       = prefs.maxStops >= 11 ? 0 : Int(prefs.maxStops)
-                            savedMaxRadiusMiles = prefs.maxTravelDistanceMiles >= 11 ? 0.0 : prefs.maxTravelDistanceMiles
+                        PrimaryButton(title: didSave ? "Saved ✓" : "Save Preferences") {
+                            savedPriority               = prefs.priority.rawValue
+                            savedMaxStops               = prefs.maxStops >= 11 ? 0 : Int(prefs.maxStops)
+                            savedMaxRadiusMiles         = prefs.maxTravelDistanceMiles >= 11 ? 0.0 : prefs.maxTravelDistanceMiles
+                            savedWalkingEnabled         = prefs.enabledModes.contains(.walking)
+                            savedPublicTransportEnabled = prefs.enabledModes.contains(.publicTransport)
+                            savedCarEnabled             = prefs.enabledModes.contains(.car)
+                            savedWellnessEnabled        = prefs.wellnessEnabled
+                            savedCholesterolLimit       = prefs.cholesterolLimit
+                            savedSodiumLimit            = prefs.sodiumLimit
+                            savedSugarLimit             = prefs.sugarLimit
+                            savedDietVegan              = prefs.dietVegan
+                            savedDietGlutenFree         = prefs.dietGlutenFree
+                            savedDietLowCarb            = prefs.dietLowCarb
+                            savedDietKosher             = prefs.dietKosher
+                            savedDietHalal              = prefs.dietHalal
+                            savedDietKeto               = prefs.dietKeto
+                            savedAvoidDairy             = prefs.avoidDairy
+                            savedAvoidPeanuts           = prefs.avoidPeanuts
+                            savedAvoidShellfish         = prefs.avoidShellfish
+                            savedAvoidWheat             = prefs.avoidWheat
+                            didSave = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                didSave = false
+                            }
+                            if let userId = authController.currentUser?.id.uuidString {
+                                Task { try? await PreferencesService.save(prefs, userId: userId) }
+                            }
                         }
                         .padding(.top, 8)
 
@@ -285,8 +330,57 @@ struct PreferencesOneScrollView: View {
                 if let saved = Priority(rawValue: savedPriority) {
                     prefs.priority = saved
                 }
-                prefs.maxStops               = savedMaxStops == 0 ? 11 : Double(savedMaxStops)
-                prefs.maxTravelDistanceMiles = savedMaxRadiusMiles == 0 ? 11 : savedMaxRadiusMiles
+                // 0 is the unlimited sentinel (slider shows 11); contract maintained by save button and DB sync
+                prefs.maxStops               = savedMaxStops == 0 ? 11.0 : Double(savedMaxStops)
+                prefs.maxTravelDistanceMiles = savedMaxRadiusMiles == 0.0 ? 11.0 : savedMaxRadiusMiles
+
+                var modes: Set<TransportMode> = []
+                if savedWalkingEnabled           { modes.insert(.walking) }
+                if savedPublicTransportEnabled   { modes.insert(.publicTransport) }
+                if savedCarEnabled               { modes.insert(.car) }
+                prefs.enabledModes = modes
+
+                prefs.wellnessEnabled    = savedWellnessEnabled
+                prefs.cholesterolLimit   = savedCholesterolLimit
+                prefs.sodiumLimit        = savedSodiumLimit
+                prefs.sugarLimit         = savedSugarLimit
+                prefs.dietVegan          = savedDietVegan
+                prefs.dietGlutenFree     = savedDietGlutenFree
+                prefs.dietLowCarb        = savedDietLowCarb
+                prefs.dietKosher         = savedDietKosher
+                prefs.dietHalal          = savedDietHalal
+                prefs.dietKeto           = savedDietKeto
+                prefs.avoidDairy         = savedAvoidDairy
+                prefs.avoidPeanuts       = savedAvoidPeanuts
+                prefs.avoidShellfish     = savedAvoidShellfish
+                prefs.avoidWheat         = savedAvoidWheat
+                // try to fetch from DB; remote wins if online
+                Task {
+                    guard authController.currentUser != nil else { return }
+                    guard let fetched = try? await PreferencesService.fetch() else { return }
+                    prefs = fetched
+                    // keep AppStorage in sync with what came from DB
+                    savedPriority               = fetched.priority.rawValue
+                    savedMaxStops               = fetched.maxStops >= 11 ? 0 : Int(fetched.maxStops)
+                    savedMaxRadiusMiles         = fetched.maxTravelDistanceMiles >= 11 ? 0.0 : fetched.maxTravelDistanceMiles
+                    savedWalkingEnabled         = fetched.enabledModes.contains(.walking)
+                    savedPublicTransportEnabled = fetched.enabledModes.contains(.publicTransport)
+                    savedCarEnabled             = fetched.enabledModes.contains(.car)
+                    savedWellnessEnabled        = fetched.wellnessEnabled
+                    savedCholesterolLimit       = fetched.cholesterolLimit
+                    savedSodiumLimit            = fetched.sodiumLimit
+                    savedSugarLimit             = fetched.sugarLimit
+                    savedDietVegan              = fetched.dietVegan
+                    savedDietGlutenFree         = fetched.dietGlutenFree
+                    savedDietLowCarb            = fetched.dietLowCarb
+                    savedDietKosher             = fetched.dietKosher
+                    savedDietHalal              = fetched.dietHalal
+                    savedDietKeto               = fetched.dietKeto
+                    savedAvoidDairy             = fetched.avoidDairy
+                    savedAvoidPeanuts           = fetched.avoidPeanuts
+                    savedAvoidShellfish         = fetched.avoidShellfish
+                    savedAvoidWheat             = fetched.avoidWheat
+                }
             }
             .onChange(of: prefs.priority) { _, newValue in
                 savedPriority = newValue.rawValue
