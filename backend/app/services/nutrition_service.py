@@ -12,6 +12,7 @@ import time as _time
 import httpx
 
 from app.core.supabase import get_supabase
+from app.scraper.upc import _validate_upc
 from app.services import fdc
 from app.services.fdc import NUTRIENT_IDS as _FDC_NUTRIENT_IDS
 
@@ -69,7 +70,7 @@ async def lookup_by_upc(
     """
     search fdc for a branded product matching the given upc/gtin.
     returns a normalized nutrition dict ready for upsert, or None if not found.
-    retries on 429 (rate limited) with exponential backoff.
+    retries on 429/503 with exponential backoff.
     """
     for attempt in range(_retries):
         try:
@@ -78,9 +79,9 @@ async def lookup_by_upc(
             )
             break
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429 and attempt < _retries - 1:
-                wait = 2 ** attempt * 5
-                logger.warning("fdc rate limited, waiting %ds before retry...", wait)
+            if e.response.status_code in (429, 503) and attempt < _retries - 1:
+                wait = 2 ** attempt * 10
+                logger.warning("fdc %d, waiting %ds before retry...", e.response.status_code, wait)
                 await asyncio.sleep(wait)
             else:
                 raise
@@ -177,26 +178,36 @@ async def get_unenriched_pairs() -> list[tuple[str, str]]:
             break
         offset += page_size
 
-    return [
-        (p["id"], p["upc"])
-        for p in all_products
-        if p["id"] not in enriched_ids and p["upc"]
-    ]
+    # filter out already-enriched and invalid UPCs (old scrapes may have
+    # KEY-/SKU- prefixed values still in the database)
+    pairs = []
+    skipped = 0
+    for p in all_products:
+        if p["id"] in enriched_ids:
+            continue
+        valid = _validate_upc(p["upc"])
+        if valid:
+            pairs.append((p["id"], valid))
+        else:
+            skipped += 1
+    if skipped:
+        logger.info("skipped %d products with invalid UPCs", skipped)
+    return pairs
 
 
 async def enrich_batch(
     pairs: list[tuple[str, str]],
-    concurrency: int = 5,
-    req_delay: float = 0.25,
+    batch_size: int = 3,
+    batch_delay: float = 1.5,
 ) -> dict:
     """
-    enrich a list of (product_id, upc) pairs concurrently.
-    concurrency controls max simultaneous fdc requests (default 5).
-    req_delay adds a small sleep per request to respect fdc rate limits.
+    enrich a list of (product_id, upc) pairs in small concurrent batches.
+    fires batch_size requests at once, waits for all to finish, sleeps
+    batch_delay seconds, then fires the next batch. this avoids triggering
+    fdc's per-second rate limit while still being faster than sequential.
     returns {"enriched": int, "not_found": int, "errors": int, "elapsed_seconds": float}
     """
     start = _time.monotonic()
-    semaphore = asyncio.Semaphore(concurrency)
     total = len(pairs)
     enriched = not_found = errors = 0
     processed = 0
@@ -204,31 +215,33 @@ async def enrich_batch(
 
     async with httpx.AsyncClient(timeout=30) as client:
         async def process(product_id: str, upc: str) -> None:
-            nonlocal enriched, not_found, errors, processed
-            async with semaphore:
-                try:
-                    data = await lookup_by_upc(upc, client=client)
-                    if data is None:
-                        not_found += 1
-                    else:
-                        enriched += 1
-                        pending_upserts.append({"product_id": product_id, **data})
-                except Exception as e:
-                    logger.error("enrichment failed for %s (upc=%s): %s", product_id, upc, e)
-                    errors += 1
+            nonlocal enriched, not_found, errors
+            try:
+                data = await lookup_by_upc(upc, client=client)
+                if data is None:
+                    not_found += 1
+                else:
+                    enriched += 1
+                    pending_upserts.append({"product_id": product_id, **data})
+            except Exception as e:
+                logger.error("enrichment failed for %s (upc=%s): %s", product_id, upc, e)
+                errors += 1
 
-                processed += 1
-                if processed % 200 == 0 or processed == total:
-                    elapsed = _time.monotonic() - start
-                    logger.info(
-                        "progress: %d/%d (enriched=%d, not_found=%d, errors=%d) %.1fs",
-                        processed, total, enriched, not_found, errors, elapsed,
-                    )
+        for i in range(0, total, batch_size):
+            chunk = pairs[i : i + batch_size]
+            await asyncio.gather(*(process(pid, upc) for pid, upc in chunk))
+            processed += len(chunk)
 
-                # small delay to stay under fdc free-tier rate limits
-                await asyncio.sleep(req_delay)
+            if processed % 150 < batch_size or processed == total:
+                elapsed = _time.monotonic() - start
+                logger.info(
+                    "progress: %d/%d (enriched=%d, not_found=%d, errors=%d) %.1fs",
+                    processed, total, enriched, not_found, errors, elapsed,
+                )
 
-        await asyncio.gather(*(process(pid, upc) for pid, upc in pairs))
+            # pause between batches for fdc rate limits
+            if i + batch_size < total:
+                await asyncio.sleep(batch_delay)
 
     # batch upsert to supabase in chunks
     if pending_upserts:
