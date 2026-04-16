@@ -1,5 +1,63 @@
 import Foundation
 
+struct ProductNutrition: Codable, Hashable, Sendable {
+    let servingSizeG: Double?
+    let servingsPerContainer: Double?
+    let caloriesKcal: Double?
+    let proteinG: Double?
+    let fatG: Double?
+    let carbsG: Double?
+    let fiberG: Double?
+    let sodiumMg: Double?
+    let cholesterolMg: Double?
+    let sugarG: Double?
+    let containsDairy: Bool?
+    let containsPeanuts: Bool?
+    let containsShellfish: Bool?
+    let containsWheat: Bool?
+}
+
+enum WellnessViolation: Equatable {
+    case allergen(String)
+    case nutrientExceeded(String, Double, Double)  // name, actual, limit
+}
+
+extension ProductNutrition {
+    /// parse a limit string like "1000 mg/Day" or "100" into a Double.
+    private static func parseLimit(_ s: String) -> Double? {
+        guard !s.isEmpty else { return nil }
+        let token = s.components(separatedBy: CharacterSet(charactersIn: " /\t")).first ?? ""
+        return Double(token)
+    }
+
+    /// returns all preference violations for this product.
+    /// nil flags (unknown data) are treated as no violation — benefit of the doubt.
+    func violations(against prefs: Preferences) -> [WellnessViolation] {
+        guard prefs.wellnessEnabled else { return [] }
+        var result: [WellnessViolation] = []
+
+        if prefs.avoidPeanuts   && containsPeanuts   == true { result.append(.allergen("peanuts")) }
+        if prefs.avoidDairy     && containsDairy     == true { result.append(.allergen("dairy")) }
+        if prefs.avoidShellfish && containsShellfish == true { result.append(.allergen("shellfish")) }
+        if prefs.avoidWheat     && containsWheat     == true { result.append(.allergen("wheat")) }
+
+        if let limit = Self.parseLimit(prefs.sodiumLimit),
+           let actual = sodiumMg, actual > limit {
+            result.append(.nutrientExceeded("sodium", actual, limit))
+        }
+        if let limit = Self.parseLimit(prefs.cholesterolLimit),
+           let actual = cholesterolMg, actual > limit {
+            result.append(.nutrientExceeded("cholesterol", actual, limit))
+        }
+        if let limit = Self.parseLimit(prefs.sugarLimit),
+           let actual = sugarG, actual > limit {
+            result.append(.nutrientExceeded("sugar", actual, limit))
+        }
+
+        return result
+    }
+}
+
 struct Product: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
@@ -9,6 +67,7 @@ struct Product: Codable, Identifiable, Hashable, Sendable {
     let upc: String?
     let productCategories: ProductCategory
     let storeProducts: [StoreProduct]
+    let productNutrition: ProductNutrition?
 
     /// Lowest available price across all stores, preferring sale price.
     var bestPrice: Double? {

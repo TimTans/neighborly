@@ -107,6 +107,14 @@ struct GroceryListView: View {
     @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
     @AppStorage("maxStops")       private var maxStops: Int    = 5
     @AppStorage("maxRadiusMiles") private var maxRadiusMiles: Double = 10
+    @AppStorage("wellnessEnabled")      private var savedWellnessEnabled: Bool = true
+    @AppStorage("avoidPeanuts")         private var savedAvoidPeanuts: Bool = true
+    @AppStorage("avoidDairy")           private var savedAvoidDairy: Bool = false
+    @AppStorage("avoidShellfish")       private var savedAvoidShellfish: Bool = false
+    @AppStorage("avoidWheat")           private var savedAvoidWheat: Bool = false
+    @AppStorage("sodiumLimit")          private var savedSodiumLimit: String = ""
+    @AppStorage("cholesterolLimit")     private var savedCholesterolLimit: String = ""
+    @AppStorage("sugarLimit")           private var savedSugarLimit: String = ""
     @State private var searchText = ""
     @State private var searchResults: [Product] = []
     @State private var isSearching = false
@@ -119,6 +127,23 @@ struct GroceryListView: View {
     @State private var searchDetailProduct: Product?
     @State private var networkMonitor = NetworkMonitor()
     @State private var locationHelper = LocationHelper()
+    @State private var nutritionCache: [String: ProductNutrition] = [:]
+    @State private var nutritionLoaded = false
+    @State private var wellnessWarnings: [(name: String, reasons: [String])] = []
+    @State private var showWellnessWarning = false
+
+    private var currentPrefs: Preferences {
+        var p = Preferences()
+        p.wellnessEnabled    = savedWellnessEnabled
+        p.avoidPeanuts       = savedAvoidPeanuts
+        p.avoidDairy         = savedAvoidDairy
+        p.avoidShellfish     = savedAvoidShellfish
+        p.avoidWheat         = savedAvoidWheat
+        p.sodiumLimit        = savedSodiumLimit
+        p.cholesterolLimit   = savedCholesterolLimit
+        p.sugarLimit         = savedSugarLimit
+        return p
+    }
 
     var body: some View {
         NavigationStack {
@@ -159,13 +184,22 @@ struct GroceryListView: View {
                     .presentationDetents([.medium])
             }
             .sheet(item: $searchDetailProduct) { product in
-                ProductDetailSheet(product: product) {
+                ProductDetailSheet(product: product, prefs: currentPrefs) {
                     addOrIncrement(product)
                     searchDetailProduct = nil
                     searchText = ""
                     searchResults = []
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showWellnessWarning) {
+                WellnessWarningSheet(warnings: wellnessWarnings) {
+                    showWellnessWarning = false
+                    Task { await optimizeRoute() }
+                } onReview: {
+                    showWellnessWarning = false
+                }
+                .presentationDetents([.medium])
             }
             .alert("No Route Found", isPresented: showNoRouteAlert) {
                 Button("OK") { routeState.noRouteReason = nil }
@@ -183,6 +217,9 @@ struct GroceryListView: View {
             guard networkMonitor.didReconnect else { return }
             await refreshPrices()
             networkMonitor.acknowledgeReconnect()
+        }
+        .task(id: items.map { $0.productId ?? "" }.joined()) {
+            await loadNutrition()
         }
     }
 
@@ -251,6 +288,9 @@ struct GroceryListView: View {
                                 Text(product.unitSize)
                                     .font(.caption)
                                     .foregroundStyle(NeighborlyTheme.textMuted)
+                                if let nutrition = product.productNutrition {
+                                    AllergenChips(nutrition: nutrition, prefs: currentPrefs)
+                                }
                             }
 
                             Spacer()
@@ -402,14 +442,25 @@ struct GroceryListView: View {
     private var groceryList: some View {
         List {
             ForEach(items) { item in
-                GroceryItemRow(item: item)
-                    .listRowBackground(NeighborlyTheme.cardBackground)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        Task {
-                            await fetchAndShowDetail(for: item)
-                        }
+                ZStack(alignment: .topTrailing) {
+                    GroceryItemRow(item: item)
+
+                    if let pid = item.productId,
+                       let nutrition = nutritionCache[pid],
+                       !nutrition.violations(against: currentPrefs).isEmpty {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.system(size: 14))
+                            .offset(x: 4, y: -4)
                     }
+                }
+                .listRowBackground(NeighborlyTheme.cardBackground)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    Task {
+                        await fetchAndShowDetail(for: item)
+                    }
+                }
             }
             .onDelete(perform: deleteItems)
 
@@ -433,7 +484,13 @@ struct GroceryListView: View {
 
     private var createRouteButton: some View {
         Button {
-            Task { await optimizeRoute() }
+            let warnings = collectViolations()
+            if warnings.isEmpty {
+                Task { await optimizeRoute() }
+            } else {
+                wellnessWarnings = warnings
+                showWellnessWarning = true
+            }
         } label: {
             HStack(spacing: 8) {
                 if routeState.isOptimizing {
@@ -600,6 +657,38 @@ struct GroceryListView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func loadNutrition() async {
+        let productIds = items.compactMap { $0.productId }
+        guard !productIds.isEmpty else { return }
+
+        var cache: [String: ProductNutrition] = [:]
+        for id in productIds {
+            guard let product = try? await APIService.getProduct(id: id) else { continue }
+            if let nutrition = product.productNutrition {
+                cache[id] = nutrition
+            }
+        }
+        nutritionCache = cache
+        nutritionLoaded = true
+    }
+
+    private func collectViolations() -> [(name: String, reasons: [String])] {
+        items.compactMap { item -> (name: String, reasons: [String])? in
+            guard let pid = item.productId,
+                  let nutrition = nutritionCache[pid] else { return nil }
+            let vs = nutrition.violations(against: currentPrefs)
+            guard !vs.isEmpty else { return nil }
+            let reasons = vs.map { violation -> String in
+                switch violation {
+                case .allergen(let name): return "contains \(name)"
+                case .nutrientExceeded(let name, let actual, let limit):
+                    return "\(name) \(String(format: "%.0f", actual)) (limit \(String(format: "%.0f", limit)))"
+                }
+            }
+            return (name: item.name, reasons: reasons)
         }
     }
 }
@@ -812,6 +901,7 @@ struct ItemDetailSheet: View {
 
 struct ProductDetailSheet: View {
     let product: Product
+    let prefs: Preferences
     let onAdd: () -> Void
 
     var body: some View {
@@ -919,6 +1009,10 @@ struct ProductDetailSheet: View {
                         }
                     }
 
+                    if let nutrition = product.productNutrition, prefs.wellnessEnabled {
+                        WellnessPanel(nutrition: nutrition, prefs: prefs)
+                    }
+
                     // Add to list button
                     Button(action: onAdd) {
                         HStack {
@@ -936,6 +1030,199 @@ struct ProductDetailSheet: View {
                 }
                 .padding(20)
             }
+        }
+        .background(NeighborlyTheme.background)
+    }
+}
+
+// MARK: - Allergen Chips
+
+private struct AllergenChips: View {
+    let nutrition: ProductNutrition
+    let prefs: Preferences
+
+    var body: some View {
+        let chips = chips()
+        if !chips.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(chips, id: \.self) { chip in
+                    Text(chip)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(NeighborlyTheme.orange)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
+    private func chips() -> [String] {
+        var result: [String] = []
+        if prefs.avoidPeanuts   && nutrition.containsPeanuts   == true { result.append("🥜 Peanuts") }
+        if prefs.avoidDairy     && nutrition.containsDairy     == true { result.append("🥛 Dairy") }
+        if prefs.avoidShellfish && nutrition.containsShellfish == true { result.append("🦐 Shellfish") }
+        if prefs.avoidWheat     && nutrition.containsWheat     == true { result.append("🌾 Wheat") }
+        return result
+    }
+}
+
+// MARK: - Wellness Panel
+
+private struct WellnessPanel: View {
+    let nutrition: ProductNutrition
+    let prefs: Preferences
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NUTRITION (PER SERVING)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NeighborlyTheme.textMuted)
+                .tracking(0.5)
+
+            nutrientRow(label: "Sodium",      value: nutrition.sodiumMg,      unit: "mg", limitStr: prefs.sodiumLimit)
+            nutrientRow(label: "Cholesterol", value: nutrition.cholesterolMg, unit: "mg", limitStr: prefs.cholesterolLimit)
+            nutrientRow(label: "Sugar",       value: nutrition.sugarG,        unit: "g",  limitStr: prefs.sugarLimit)
+
+            if let cal = nutrition.caloriesKcal {
+                Divider().opacity(0.15)
+                HStack(spacing: 8) {
+                    Label("\(Int(cal)) kcal", systemImage: "flame")
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                    if let protein = nutrition.proteinG {
+                        Text("·  \(String(format: "%.1f", protein))g protein")
+                            .font(.caption)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
+                    if let fat = nutrition.fatG {
+                        Text("·  \(String(format: "%.1f", fat))g fat")
+                            .font(.caption)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
+                }
+            }
+
+            AllergenChips(nutrition: nutrition, prefs: prefs)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.gray.opacity(0.06))
+        )
+    }
+
+    @ViewBuilder
+    private func nutrientRow(label: String, value: Double?, unit: String, limitStr: String) -> some View {
+        let limit = parseLimit(limitStr)
+        let fraction: Double? = (value != nil && limit != nil) ? min((value! / limit!), 1.0) : nil
+
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label).font(.caption).foregroundStyle(NeighborlyTheme.textSecondary)
+                Spacer()
+                if let v = value {
+                    Text("\(String(format: "%.0f", v)) \(unit)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(fraction.map { barColor($0) } ?? NeighborlyTheme.textMuted)
+                } else {
+                    Text("—").font(.caption).foregroundStyle(NeighborlyTheme.textMuted)
+                }
+                if let limit {
+                    Text("/ \(String(format: "%.0f", limit)) \(unit) limit")
+                        .font(.caption2).foregroundStyle(NeighborlyTheme.textMuted)
+                }
+            }
+            if let f = fraction {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.gray.opacity(0.12))
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(barColor(f))
+                            .frame(width: geo.size.width * f)
+                    }
+                }
+                .frame(height: 4)
+            }
+        }
+    }
+
+    private func barColor(_ fraction: Double) -> Color {
+        if fraction < 0.5 { return NeighborlyTheme.green }
+        if fraction < 0.8 { return NeighborlyTheme.orange }
+        return .red
+    }
+
+    private func parseLimit(_ s: String) -> Double? {
+        guard !s.isEmpty else { return nil }
+        let token = s.components(separatedBy: CharacterSet(charactersIn: " /\t")).first ?? ""
+        return Double(token)
+    }
+}
+
+// MARK: - Wellness Warning Sheet
+
+private struct WellnessWarningSheet: View {
+    let warnings: [(name: String, reasons: [String])]
+    let onContinue: () -> Void
+    let onReview: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(NeighborlyTheme.orange)
+                        .font(.title2)
+                    Text("Dietary Warning")
+                        .font(.headline)
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+                }
+
+                Text("These items may not match your preferences:")
+                    .font(.subheadline)
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(warnings, id: \.name) { warning in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("· \(warning.name)")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(NeighborlyTheme.textPrimary)
+                            Text(warning.reasons.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundStyle(NeighborlyTheme.orange)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(NeighborlyTheme.orangeSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(20)
+
+            Spacer()
+
+            VStack(spacing: 10) {
+                Button(action: onContinue) {
+                    Text("Continue Anyway")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(NeighborlyTheme.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+
+                Button(action: onReview) {
+                    Text("Review List")
+                        .font(.subheadline)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
         .background(NeighborlyTheme.background)
     }
