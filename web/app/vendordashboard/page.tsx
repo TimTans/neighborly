@@ -211,7 +211,7 @@ const PaginationControls: React.FC<{
         disabled={page === totalPages}
         className={`${btnBase} ${btnIdle} ${page === totalPages ? btnDisabled : ""}`}
       >
-        Next →
+        Next
       </button>
 
       <div className="flex items-center gap-1.5 ml-3 pl-3 border-l border-stone-200">
@@ -270,10 +270,13 @@ const VendorDashboard: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   /* ── Pagination state ── */
-  const PRODUCTS_PER_PAGE = 10;
   const SALES_PER_PAGE = 9;
+  const [productsPerPage, setProductsPerPage] = useState(10);
   const [productPage, setProductPage] = useState(1);
   const [salePage, setSalePage] = useState(1);
+
+  /* ── Inventory search ── */
+  const [inventorySearch, setInventorySearch] = useState("");
 
   /* ── Data fetching ── */
   const refreshProducts = useCallback(async () => {
@@ -326,17 +329,31 @@ const VendorDashboard: React.FC = () => {
   const onSaleCount = saleProducts.length;
   const stockPct = storeProducts.length ? Math.round((inStockCount / storeProducts.length) * 100) : 0;
 
-  /* ── Paginated slices ── */
-  const totalProductPages = Math.max(1, Math.ceil(storeProducts.length / PRODUCTS_PER_PAGE));
+  /* ── Filtered + paginated slices ── */
+  const filteredProducts = React.useMemo(() => {
+    const q = inventorySearch.trim().toLowerCase();
+    if (!q) return storeProducts;
+    return storeProducts.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.brand || "").toLowerCase().includes(q) ||
+      p.category.toLowerCase().includes(q),
+    );
+  }, [storeProducts, inventorySearch]);
+
+  const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / productsPerPage));
   const totalSalePages = Math.max(1, Math.ceil(saleProducts.length / SALES_PER_PAGE));
-  const pagedProducts = storeProducts.slice(
-    (productPage - 1) * PRODUCTS_PER_PAGE,
-    productPage * PRODUCTS_PER_PAGE,
+  const pagedProducts = filteredProducts.slice(
+    (productPage - 1) * productsPerPage,
+    productPage * productsPerPage,
   );
   const pagedSales = saleProducts.slice(
     (salePage - 1) * SALES_PER_PAGE,
     salePage * SALES_PER_PAGE,
   );
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [inventorySearch, productsPerPage]);
 
   useEffect(() => {
     if (productPage > totalProductPages) setProductPage(totalProductPages);
@@ -661,7 +678,7 @@ const VendorDashboard: React.FC = () => {
 
         {/* ── Product Table — col-span-3 ── */}
         <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-3">
-          <div className="flex justify-between items-center mb-3">
+          <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -675,6 +692,49 @@ const VendorDashboard: React.FC = () => {
               <button onClick={openModal} className="bg-green-800 text-white border-none px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-900 transition-colors">
                 + Add Product
               </button>
+            </div>
+          </div>
+
+          {/* Search + page size */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="relative flex-1">
+              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                value={inventorySearch}
+                onChange={(e) => setInventorySearch(e.target.value)}
+                placeholder="Search by name, brand, or category..."
+                className="w-full border border-stone-200 rounded-xl pl-10 pr-10 py-2.5 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+              />
+              {inventorySearch && (
+                <button
+                  onClick={() => setInventorySearch("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-stone-400 hover:bg-stone-200 hover:text-stone-600 transition-colors border-none bg-transparent cursor-pointer"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-xs text-stone-400">Show</span>
+              <select
+                value={productsPerPage}
+                onChange={(e) => setProductsPerPage(parseInt(e.target.value, 10))}
+                className="border border-stone-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold bg-white text-stone-700 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all cursor-pointer appearance-none bg-no-repeat bg-right"
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238B8680' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>\")",
+                  backgroundPosition: "right 0.5rem center",
+                }}
+              >
+                {[10, 25, 50, 100].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -692,6 +752,16 @@ const VendorDashboard: React.FC = () => {
           {storeProducts.length === 0 ? (
             <div className="text-center py-12 text-stone-400 text-sm">
               No products yet. Click &ldquo;+ Add Product&rdquo; to get started.
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="text-center py-12 text-stone-400 text-sm">
+              No products match &ldquo;{inventorySearch}&rdquo;.{" "}
+              <button
+                onClick={() => setInventorySearch("")}
+                className="text-green-800 font-semibold hover:underline border-none bg-transparent cursor-pointer"
+              >
+                Clear search
+              </button>
             </div>
           ) : pagedProducts.map((p) => {
             const isEditing = editingId === p.id;
@@ -831,14 +901,19 @@ const VendorDashboard: React.FC = () => {
 
           <div className="flex justify-between items-center mt-4 pt-4 border-t-2 border-stone-100">
             <span className="text-sm text-stone-400">
-              {storeProducts.length > 0 ? (
+              {storeProducts.length === 0 ? (
+                <>0 products</>
+              ) : filteredProducts.length === 0 ? (
+                <>0 matches for &ldquo;{inventorySearch}&rdquo;</>
+              ) : inventorySearch.trim() ? (
                 <>
-                  Showing {(productPage - 1) * PRODUCTS_PER_PAGE + 1}
-                  –{Math.min(productPage * PRODUCTS_PER_PAGE, storeProducts.length)} of{" "}
-                  {storeProducts.length} products · {onSaleCount} on sale · {outOfStockCount} out of stock
+                  {filteredProducts.length} match{filteredProducts.length === 1 ? "" : "es"} for &ldquo;{inventorySearch}&rdquo;
+                  <span className="text-stone-300"> · of {storeProducts.length} products</span>
                 </>
               ) : (
-                <>0 products</>
+                <>
+                  {storeProducts.length} products · {onSaleCount} on sale · {outOfStockCount} out of stock
+                </>
               )}
             </span>
             {totalProductPages > 1 && (
