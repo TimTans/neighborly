@@ -1,0 +1,14 @@
+.venv
+.uv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.env
+.env.example
+data
+tests
+scripts
+README.md
+.python-version
+.gitignore
