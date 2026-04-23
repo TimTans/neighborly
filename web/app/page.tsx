@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 const COLORS = {
@@ -27,6 +28,54 @@ const COLORS = {
   divider: "#F0EDE8",
   nav: "#EDEBE6",
 };
+
+function NeighborlyLogoMark({
+  size,
+  radius,
+  shadow = "0 4px 14px rgba(45,106,79,0.25)",
+  priority = false,
+}: {
+  size: number;
+  radius?: number;
+  shadow?: string;
+  priority?: boolean;
+}) {
+  // The SVG is mostly padding in the viewBox; without scaling the mark looks tiny, and
+  // a white card behind it double-stacks with the asset’s own light area.
+  const r = radius ?? (size * 11) / 38;
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: r,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxShadow: shadow,
+        overflow: "hidden",
+        flexShrink: 0,
+        lineHeight: 0,
+      }}
+    >
+      <Image
+        src="/icon.svg"
+        alt=""
+        width={size}
+        height={size}
+        style={{
+          objectFit: "cover",
+          objectPosition: "center",
+          width: size,
+          height: size,
+          transform: "scale(1.48)",
+          transformOrigin: "center",
+        }}
+        priority={priority}
+      />
+    </div>
+  );
+}
 
 export default function NeighborlyHomepage() {
   const [scrollY, setScrollY] = useState(0);
@@ -172,13 +221,7 @@ export default function NeighborlyHomepage() {
       }}>
         <div className="container" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{
-              width: 38, height: 38, borderRadius: 11,
-              background: `linear-gradient(135deg, ${COLORS.green}, ${COLORS.greenLight})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "white", fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 17,
-              boxShadow: "0 4px 14px rgba(45,106,79,0.25)",
-            }}>N</div>
+            <NeighborlyLogoMark size={38} priority />
             <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em" }}>Neighborly</span>
           </div>
 
@@ -300,12 +343,7 @@ export default function NeighborlyHomepage() {
                     {/* Mini header */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{
-                          width: 28, height: 28, borderRadius: 8,
-                          background: `linear-gradient(135deg, ${COLORS.green}, ${COLORS.greenLight})`,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          color: "white", fontFamily: "'Fraunces',serif", fontWeight: 700, fontSize: 12,
-                        }}>N</div>
+                        <NeighborlyLogoMark size={28} radius={8} shadow="0 2px 8px rgba(45,106,79,0.2)" />
                         <span style={{ fontFamily: "'Fraunces',serif", fontWeight: 700, fontSize: 14 }}>Neighborly</span>
                       </div>
                       <div style={{ width: 24, height: 24, borderRadius: 7, background: COLORS.nav }} />
@@ -840,12 +878,7 @@ export default function NeighborlyHomepage() {
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 40, marginBottom: 40 }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 10,
-                  background: `linear-gradient(135deg, ${COLORS.green}, ${COLORS.greenLight})`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "white", fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 15,
-                }}>N</div>
+                <NeighborlyLogoMark size={34} radius={10} />
                 <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 17 }}>Neighborly</span>
               </div>
               <p style={{ fontSize: 13, color: COLORS.textTri, lineHeight: 1.6, maxWidth: 280 }}>
