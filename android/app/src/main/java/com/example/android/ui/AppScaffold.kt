@@ -17,21 +17,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.android.ui.home.HomeScreen
 import com.example.android.ui.lists.GroceryListScreen
 import com.example.android.ui.preferences.PreferencesScreen
 import com.example.android.ui.route.RouteScreen
+import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.viewmodel.home.HomeViewModel
 import com.example.android.viewmodel.login.LoginViewModel
+import com.example.android.viewmodel.route.RouteViewModel
 import com.example.android.viewmodel.shopper.ShopperViewModel
-
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
 
 private enum class MainTab(
     val label: String,
@@ -57,6 +56,7 @@ fun AppScaffold(
     shopperViewModel: ShopperViewModel
 ) {
     var destination by rememberSaveable { mutableStateOf(AppDestination.Home) }
+    val routeViewModel = remember { RouteViewModel() }
 
     val currentTab = when (destination) {
         AppDestination.Home -> MainTab.Home
@@ -67,7 +67,7 @@ fun AppScaffold(
 
     Scaffold(
         bottomBar = {
-            NavigationBar(containerColor = Color.White) {
+            NavigationBar(containerColor = NeighborlyColors.Surface) {
                 MainTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = currentTab == tab && destination != AppDestination.Preferences,
@@ -90,11 +90,11 @@ fun AppScaffold(
                         },
                         label = { Text(tab.label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = NeighborlyGreen,
-                            selectedTextColor = NeighborlyGreen,
-                            unselectedIconColor = Color(0xFF8E8E8E),
-                            unselectedTextColor = Color(0xFF8E8E8E),
-                            indicatorColor = NeighborlyGreenSoft
+                            selectedIconColor = NeighborlyColors.Green,
+                            selectedTextColor = NeighborlyColors.Green,
+                            unselectedIconColor = NeighborlyColors.NavigationUnselected,
+                            unselectedTextColor = NeighborlyColors.NavigationUnselected,
+                            indicatorColor = NeighborlyColors.GreenSoft
                         )
                     )
                 }
@@ -117,7 +117,7 @@ fun AppScaffold(
             )
 
             AppDestination.Route -> RouteScreen(
-                homeViewModel = homeViewModel,
+                routeViewModel = routeViewModel,
                 modifier = Modifier.padding(innerPadding)
             )
 

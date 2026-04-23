@@ -50,15 +50,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.android.ui.theme.NeighborlyColors
+import com.example.android.ui.theme.NeighborlyShapes
+import com.example.android.ui.theme.NeighborlySpacing
 import com.example.android.viewmodel.home.HomeUiState
 import com.example.android.viewmodel.home.HomeViewModel
 import com.example.android.viewmodel.home.RouteStop
-
-private val NeighborlyBackground = Color(0xFFF7F3EC)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
-private val NeighborlyOrange = Color(0xFFE67E22)
-private val NeighborlyOrangeSoft = Color(0xFFFFF3E0)
 
 @Composable
 fun HomeScreen(
@@ -73,7 +70,7 @@ fun HomeScreen(
 
     Surface(
         modifier = modifier.fillMaxSize(),
-        color = NeighborlyBackground
+        color = NeighborlyColors.Background
     ) {
         Column(
             modifier = Modifier
@@ -90,7 +87,10 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(
+                        horizontal = NeighborlySpacing.ScreenHorizontal,
+                        vertical = NeighborlySpacing.ScreenVertical
+                    ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 HeroCard(
@@ -118,7 +118,7 @@ private fun HomeTopBar(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    Surface(color = NeighborlyBackground, shadowElevation = 0.dp) {
+    Surface(color = NeighborlyColors.Background, shadowElevation = 0.dp) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -134,7 +134,7 @@ private fun HomeTopBar(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(NeighborlyGreen),
+                        .background(NeighborlyColors.Green),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -146,7 +146,7 @@ private fun HomeTopBar(
                 Text(
                     text = "Neighborly",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF1A1A1A)
+                    color = NeighborlyColors.TextPrimary
                 )
             }
 
@@ -158,13 +158,13 @@ private fun HomeTopBar(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.White),
+                        .background(NeighborlyColors.Surface),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Notifications,
                         contentDescription = "Notifications",
-                        tint = Color(0xFF1A1A1A)
+                        tint = NeighborlyColors.TextPrimary
                     )
                 }
 
@@ -173,7 +173,7 @@ private fun HomeTopBar(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(NeighborlyOrange)
+                            .background(NeighborlyColors.Orange)
                             .clickable { menuExpanded = true },
                         contentAlignment = Alignment.Center
                     ) {
@@ -211,8 +211,8 @@ private fun HomeTopBar(
 private fun HeroCard(name: String, savings: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = NeighborlyGreen)
+        shape = NeighborlyShapes.LargeCard,
+        colors = CardDefaults.cardColors(containerColor = NeighborlyColors.Green)
     ) {
         Column(
             modifier = Modifier
@@ -220,7 +220,7 @@ private fun HeroCard(name: String, savings: String) {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Good morning,", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE0F1E8))
+            Text("Good morning,", style = MaterialTheme.typography.bodyMedium, color = NeighborlyColors.GreenSoft)
             Text(
                 text = name,
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
@@ -229,21 +229,21 @@ private fun HeroCard(name: String, savings: String) {
             Text(
                 text = "Your optimized route is ready — 3 stores, 12 items, saving $$savings.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFE0F1E8)
+                color = NeighborlyColors.GreenSoft
             )
             Spacer(modifier = Modifier.height(4.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White),
+                    .clip(NeighborlyShapes.Pill)
+                    .background(NeighborlyColors.Surface),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "Start Trip →",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = NeighborlyGreen
+                    color = NeighborlyColors.Green
                 )
             }
         }
@@ -259,13 +259,13 @@ private fun MetricsGrid(state: HomeUiState) {
         }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallMetricCard(modifier = Modifier.weight(1f), value = state.avgTripTime, label = "avg trip", icon = Icons.Outlined.Schedule, tint = Color(0xFF757575))
-            SmallMetricCard(modifier = Modifier.weight(1f), value = state.milesSaved, label = "miles saved", icon = Icons.Outlined.Place, tint = Color(0xFF757575))
+            SmallMetricCard(modifier = Modifier.weight(1f), value = state.avgTripTime, label = "avg trip", icon = Icons.Outlined.Schedule, tint = NeighborlyColors.IconMuted)
+            SmallMetricCard(modifier = Modifier.weight(1f), value = state.milesSaved, label = "miles saved", icon = Icons.Outlined.Place, tint = NeighborlyColors.IconMuted)
         }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallMetricCard(modifier = Modifier.weight(1f), value = state.itemsTracked, label = "tracked", icon = Icons.Outlined.Inventory2, tint = Color(0xFF757575))
-            SmallMetricCard(modifier = Modifier.weight(1f), value = state.alertsCount, label = "alerts", icon = Icons.Outlined.Notifications, tint = Color(0xFF757575))
+            SmallMetricCard(modifier = Modifier.weight(1f), value = state.itemsTracked, label = "tracked", icon = Icons.Outlined.Inventory2, tint = NeighborlyColors.IconMuted)
+            SmallMetricCard(modifier = Modifier.weight(1f), value = state.alertsCount, label = "alerts", icon = Icons.Outlined.Notifications, tint = NeighborlyColors.IconMuted)
         }
     }
 }
@@ -274,7 +274,7 @@ private fun MetricsGrid(state: HomeUiState) {
 private fun BudgetMetricCard(modifier: Modifier = Modifier, used: String, total: String) {
     val progress = (57.31 / 120.0).toFloat().coerceIn(0f, 1f)
 
-    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = NeighborlyColors.Surface)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -282,19 +282,19 @@ private fun BudgetMetricCard(modifier: Modifier = Modifier, used: String, total:
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(imageVector = Icons.Outlined.AccountBalance, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyGreen)
-                Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9E9E9E))
+                Icon(imageVector = Icons.Outlined.AccountBalance, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyColors.Green)
+                Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.TextTertiary)
             }
-            Text(used, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyGreen)
-            Text("of $total", style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9E9E))
+            Text(used, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.Green)
+            Text("of $total", style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextTertiary)
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color = NeighborlyGreen,
-                trackColor = NeighborlyGreenSoft
+                color = NeighborlyColors.Green,
+                trackColor = NeighborlyColors.GreenSoft
             )
         }
     }
@@ -302,7 +302,7 @@ private fun BudgetMetricCard(modifier: Modifier = Modifier, used: String, total:
 
 @Composable
 private fun SavedMetricCard(modifier: Modifier = Modifier, amount: String, sublabel: String) {
-    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = NeighborlyColors.Surface)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -310,11 +310,11 @@ private fun SavedMetricCard(modifier: Modifier = Modifier, amount: String, subla
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(imageVector = Icons.Outlined.ShowChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyOrange)
-                Text("SAVED", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9E9E9E))
+                Icon(imageVector = Icons.Outlined.ShowChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyColors.Orange)
+                Text("SAVED", style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.TextTertiary)
             }
-            Text(amount, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyOrange)
-            Text(sublabel, style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9E9E))
+            Text(amount, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.Orange)
+            Text(sublabel, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextTertiary)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
                 listOf(0.4f, 0.7f, 0.5f, 0.9f, 0.6f).forEach { height ->
                     Box(
@@ -328,7 +328,7 @@ private fun SavedMetricCard(modifier: Modifier = Modifier, amount: String, subla
                                 .fillMaxWidth()
                                 .height(24.dp * height)
                                 .clip(RoundedCornerShape(2.dp))
-                                .background(NeighborlyOrange.copy(alpha = 0.6f))
+                                .background(NeighborlyColors.Orange.copy(alpha = 0.6f))
                         )
                     }
                 }
@@ -345,7 +345,7 @@ private fun SmallMetricCard(
     icon: ImageVector,
     tint: Color
 ) {
-    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(modifier = modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = NeighborlyColors.Surface)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -353,8 +353,8 @@ private fun SmallMetricCard(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = tint)
-            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFF424242))
-            Text(label, style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9E9E))
+            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.TextBody)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextTertiary)
         }
     }
 }
@@ -363,8 +363,8 @@ private fun SmallMetricCard(
 private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = NeighborlyGreenSoft)
+        shape = NeighborlyShapes.LargeCard,
+        colors = CardDefaults.cardColors(containerColor = NeighborlyColors.GreenSoft)
     ) {
         Column(
             modifier = Modifier
@@ -374,10 +374,10 @@ private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) 
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Rounded.Send, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF9E9E9E))
-                    Text("OPTIMIZED ROUTE", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFF9E9E9E))
+                    Icon(Icons.Rounded.Send, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyColors.TextTertiary)
+                    Text("OPTIMIZED ROUTE", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.TextTertiary)
                 }
-                Text(stopsLabel, style = MaterialTheme.typography.bodySmall, color = NeighborlyGreen)
+                Text(stopsLabel, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.Green)
             }
 
             Box(
@@ -385,10 +385,10 @@ private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) 
                     .fillMaxWidth()
                     .height(120.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Brush.linearGradient(colors = listOf(Color(0xFFCCE7D9), NeighborlyGreenSoft))),
+                    .background(Brush.linearGradient(colors = listOf(NeighborlyColors.MapGradientStart, NeighborlyColors.GreenSoft))),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Google Maps integration", style = MaterialTheme.typography.bodySmall, color = Color(0xFF4F7E6B))
+                Text("Google Maps integration", style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.MapText)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -422,35 +422,35 @@ private fun RouteRow(
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(NeighborlyGreen),
+                            .background(NeighborlyColors.Green),
                 contentAlignment = Alignment.Center
             ) {
                 Text(index.toString(), style = MaterialTheme.typography.labelSmall, color = Color.White)
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFF333333))
-                Text(address, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.TextStrong)
+                Text(address, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(NeighborlyGreenSoft)
+                            .background(NeighborlyColors.GreenSoft)
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text(itemsLabel, style = MaterialTheme.typography.labelSmall, color = NeighborlyGreen)
+                        Text(itemsLabel, style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.Green)
                     }
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(NeighborlyOrangeSoft)
+                            .background(NeighborlyColors.OrangeSoft)
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text(timeEstimate, style = MaterialTheme.typography.labelSmall, color = NeighborlyOrange)
+                        Text(timeEstimate, style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.Orange)
                     }
                 }
             }
         }
 
-        Text(distance, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+        Text(distance, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
     }
 }
