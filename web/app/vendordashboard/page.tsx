@@ -124,6 +124,30 @@ const fmtDate = (iso: string): string =>
 
 const starsStr = (n: number): string => "★".repeat(n) + "☆".repeat(5 - n);
 
+/* ═══ CATALOG (for product search) ═══ */
+
+interface CatalogProduct {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: string;
+  unit_type: string;
+  avg_price: number;
+}
+
+const CATALOG: CatalogProduct[] = [
+  { id: "cat1", name: "Organic Bananas", brand: "Dole", category: "Produce", unit_type: "bunch", avg_price: 1.39 },
+  { id: "cat2", name: "Whole Milk 1 Gal", brand: "Horizon", category: "Dairy", unit_type: "gal", avg_price: 5.29 },
+  { id: "cat3", name: "Almond Milk 64oz", brand: "Califia Farms", category: "Dairy", unit_type: "carton", avg_price: 4.99 },
+  { id: "cat4", name: "Free Range Eggs 12ct", brand: "Vital Farms", category: "Dairy", unit_type: "dozen", avg_price: 6.49 },
+  { id: "cat5", name: "Atlantic Salmon Fillet", brand: null, category: "Meat", unit_type: "lb", avg_price: 12.99 },
+  { id: "cat6", name: "Sourdough Bread", brand: "Acme", category: "Bakery", unit_type: "loaf", avg_price: 5.49 },
+  { id: "cat7", name: "Avocados (4 pk)", brand: null, category: "Produce", unit_type: "pack", avg_price: 4.99 },
+  { id: "cat8", name: "Organic Strawberries 1lb", brand: "Driscoll's", category: "Produce", unit_type: "lb", avg_price: 5.99 },
+  { id: "cat9", name: "Peanut Butter 16oz", brand: "Jif", category: "Pantry", unit_type: "jar", avg_price: 3.79 },
+  { id: "cat10", name: "Pasta Sauce 24oz", brand: "Rao's", category: "Pantry", unit_type: "jar", avg_price: 8.49 },
+];
+
 /* ═══ COMPONENT ═══ */
 
 const VendorDashboard: React.FC = () => {
@@ -133,11 +157,22 @@ const VendorDashboard: React.FC = () => {
   const [editPrice, setEditPrice] = useState<string>("");
   const [editSale, setEditSale] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [modalMode, setModalMode] = useState<"search" | "create">("search");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [newProduct, setNewProduct] = useState({ name: "", brand: "", category: "Produce", unit_type: "", price: "" });
   const priceInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editingId && priceInputRef.current) priceInputRef.current.focus();
   }, [editingId]);
+
+  useEffect(() => {
+    if (showProductModal && modalMode === "search" && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showProductModal, modalMode]);
 
   const inStockCount = storeProducts.filter((p) => p.in_stock).length;
   const outOfStockCount = storeProducts.filter((p) => !p.in_stock).length;
@@ -186,6 +221,66 @@ const VendorDashboard: React.FC = () => {
   const handleEditKeydown = (e: React.KeyboardEvent, id: string) => {
     if (e.key === "Enter") saveEdit(id);
     if (e.key === "Escape") cancelEdit();
+  };
+
+  /* ── Modal helpers ── */
+  const openModal = () => {
+    setShowProductModal(true);
+    setModalMode("search");
+    setCatalogSearch("");
+    setNewProduct({ name: "", brand: "", category: "Produce", unit_type: "", price: "" });
+  };
+
+  const closeModal = () => setShowProductModal(false);
+
+  const catalogResults = catalogSearch.trim().length > 0
+    ? CATALOG.filter((c) =>
+        c.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
+        (c.brand && c.brand.toLowerCase().includes(catalogSearch.toLowerCase())) ||
+        c.category.toLowerCase().includes(catalogSearch.toLowerCase())
+      )
+    : [];
+
+  const addFromCatalog = (item: CatalogProduct) => {
+    const newId = `sp${Date.now()}`;
+    setStoreProducts((prev) => [
+      ...prev,
+      {
+        id: newId,
+        name: item.name,
+        brand: item.brand,
+        category: item.category,
+        unit_type: item.unit_type,
+        price: item.avg_price,
+        sale_price: null,
+        in_stock: true,
+        data_source: "vendor",
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+    closeModal();
+  };
+
+  const createNewProduct = () => {
+    const price = parseFloat(newProduct.price);
+    if (!newProduct.name.trim() || isNaN(price)) return;
+    const newId = `sp${Date.now()}`;
+    setStoreProducts((prev) => [
+      ...prev,
+      {
+        id: newId,
+        name: newProduct.name.trim(),
+        brand: newProduct.brand.trim() || null,
+        category: newProduct.category,
+        unit_type: newProduct.unit_type.trim(),
+        price,
+        sale_price: null,
+        in_stock: true,
+        data_source: "vendor",
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+    closeModal();
   };
 
   /* ── Rating helpers ── */
@@ -277,7 +372,7 @@ const VendorDashboard: React.FC = () => {
               {" · "}{onSaleCount} on sale
             </div>
           </div>
-          <button className="relative z-10 bg-white text-green-800 font-semibold text-[15px] px-7 py-3.5 rounded-xl cursor-pointer border-none hover:bg-green-50 transition-all hover:-translate-y-0.5 hover:shadow-lg">
+          <button onClick={openModal} className="relative z-10 bg-white text-green-800 font-semibold text-[15px] px-7 py-3.5 rounded-xl cursor-pointer border-none hover:bg-green-50 transition-all hover:-translate-y-0.5 hover:shadow-lg">
             + Add Product
           </button>
         </div>
@@ -379,7 +474,7 @@ const VendorDashboard: React.FC = () => {
               <button className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors">
                 Export
               </button>
-              <button className="bg-green-800 text-white border-none px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-900 transition-colors">
+              <button onClick={openModal} className="bg-green-800 text-white border-none px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-900 transition-colors">
                 + Add Product
               </button>
             </div>
@@ -813,6 +908,241 @@ const VendorDashboard: React.FC = () => {
         </div>
 
       </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* ══ PRODUCT MODAL ══ */}
+      {/* ═══════════════════════════════════════════ */}
+      {showProductModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeModal}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+
+          {/* Modal */}
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col"
+            style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.15)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-7 pt-6 pb-4 border-b border-stone-100">
+              <div className="flex justify-between items-center mb-4">
+                <div className="fraunces text-xl font-semibold tracking-tight">Add Product</div>
+                <button
+                  onClick={closeModal}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors border-none bg-transparent cursor-pointer"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+
+              {/* Mode toggle */}
+              <div className="flex gap-1 bg-stone-100 rounded-full p-1">
+                <button
+                  onClick={() => setModalMode("search")}
+                  className={`flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer
+                    ${modalMode === "search"
+                      ? "bg-green-800 text-white shadow-sm"
+                      : "bg-transparent text-stone-500 hover:text-stone-700"}`}
+                >
+                  Search Catalog
+                </button>
+                <button
+                  onClick={() => setModalMode("create")}
+                  className={`flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer
+                    ${modalMode === "create"
+                      ? "bg-green-800 text-white shadow-sm"
+                      : "bg-transparent text-stone-500 hover:text-stone-700"}`}
+                >
+                  Create New
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-7 py-5 overflow-y-auto flex-1">
+
+              {/* ── Search Mode ── */}
+              {modalMode === "search" && (
+                <div>
+                  <div className="relative mb-4">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input
+                      ref={searchInputRef}
+                      value={catalogSearch}
+                      onChange={(e) => setCatalogSearch(e.target.value)}
+                      placeholder="Search by name, brand, or category..."
+                      className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+
+                  {catalogSearch.trim().length === 0 ? (
+                    <div className="text-center py-10">
+                      <div className="text-stone-300 mb-2">
+                        <svg className="mx-auto" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                      </div>
+                      <div className="text-sm text-stone-400">Type to search the product catalog</div>
+                      <div className="text-xs text-stone-300 mt-1">Or switch to &ldquo;Create New&rdquo; to add a custom product</div>
+                    </div>
+                  ) : catalogResults.length === 0 ? (
+                    <div className="text-center py-10">
+                      <div className="text-sm text-stone-400 mb-3">No products found for &ldquo;{catalogSearch}&rdquo;</div>
+                      <button
+                        onClick={() => {
+                          setModalMode("create");
+                          setNewProduct((prev) => ({ ...prev, name: catalogSearch }));
+                        }}
+                        className="bg-green-800 text-white border-none px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors"
+                      >
+                        Create &ldquo;{catalogSearch}&rdquo; as new product
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {catalogResults.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between p-4 bg-stone-50 rounded-xl border border-stone-100 hover:border-green-200 hover:bg-green-50/30 transition-all cursor-pointer group"
+                          onClick={() => addFromCatalog(item)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: catColor(item.category) }}/>
+                            <div>
+                              <div className="font-medium text-sm">{item.name}</div>
+                              <div className="text-[11px] text-stone-400">
+                                {item.brand || "Generic"} · {item.category} · per {item.unit_type}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-xs text-stone-400">Avg price</div>
+                              <div className="font-semibold text-sm">${item.avg_price.toFixed(2)}</div>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-green-100 text-green-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Create Mode ── */}
+              {modalMode === "create" && (
+                <div className="flex flex-col gap-4">
+                  {/* Product Name */}
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Product Name *</label>
+                    <input
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                      placeholder="e.g. Organic Whole Milk"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+
+                  {/* Brand + Category row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Brand</label>
+                      <input
+                        value={newProduct.brand}
+                        onChange={(e) => setNewProduct({ ...newProduct, brand: e.target.value })}
+                        placeholder="e.g. Horizon"
+                        className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Category *</label>
+                      <select
+                        value={newProduct.category}
+                        onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                        className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all cursor-pointer appearance-none"
+                      >
+                        {Object.keys(CAT_COLORS).map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Unit Type + Price row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Unit Type</label>
+                      <input
+                        value={newProduct.unit_type}
+                        onChange={(e) => setNewProduct({ ...newProduct, unit_type: e.target.value })}
+                        placeholder="e.g. lb, gal, dozen"
+                        className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Price *</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                        <input
+                          value={newProduct.price}
+                          onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+                          placeholder="0.00"
+                          className="w-full border border-stone-200 rounded-xl pl-8 pr-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  {newProduct.name.trim() && (
+                    <div className="bg-stone-50 rounded-xl p-4 border border-stone-100 mt-2">
+                      <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">Preview</div>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: catColor(newProduct.category) }}/>
+                        <div>
+                          <div className="font-medium text-sm">{newProduct.name}</div>
+                          <div className="text-[11px] text-stone-400">
+                            {newProduct.brand || "Generic"} · {newProduct.category}
+                            {newProduct.unit_type && ` · per ${newProduct.unit_type}`}
+                            {newProduct.price && ` · $${parseFloat(newProduct.price).toFixed(2)}`}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {modalMode === "create" && (
+              <div className="px-7 py-4 border-t border-stone-100 flex justify-end gap-2">
+                <button
+                  onClick={closeModal}
+                  className="border border-stone-200 text-stone-500 bg-transparent px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer hover:bg-stone-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createNewProduct}
+                  disabled={!newProduct.name.trim() || !newProduct.price}
+                  className="bg-green-800 text-white border-none px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Add Product
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
     </div>
