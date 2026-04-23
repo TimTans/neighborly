@@ -21,22 +21,34 @@ const VendorMap: React.FC<VendorMapProps> = ({ address, lat = 40.6892, lng = -73
 
     mapboxgl.accessToken = token;
 
-    map.current = new mapboxgl.Map({
+    const mapInstance = new mapboxgl.Map({
       container: mapContainer.current,
       style: "mapbox://styles/mapbox/streets-v12",
       center: [lng, lat],
       zoom: 14,
     });
+    map.current = mapInstance;
 
-    map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
+    mapInstance.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     new mapboxgl.Marker({ color: "#2D6A4F" })
       .setLngLat([lng, lat])
       .setPopup(new mapboxgl.Popup().setText(address))
-      .addTo(map.current);
+      .addTo(mapInstance);
+
+    // Fix sizing when the map initializes in a flex/grid container
+    // that may not have its final dimensions at mount time.
+    mapInstance.on("load", () => mapInstance.resize());
+    const resizeTimer = setTimeout(() => mapInstance.resize(), 100);
+
+    const resizeObserver = new ResizeObserver(() => mapInstance.resize());
+    resizeObserver.observe(mapContainer.current);
 
     return () => {
-      map.current?.remove();
+      clearTimeout(resizeTimer);
+      resizeObserver.disconnect();
+      mapInstance.remove();
+      map.current = null;
     };
   }, [lat, lng, address]);
 

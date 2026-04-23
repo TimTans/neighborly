@@ -1,0 +1,200 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+
+async function requireVendor() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Not authenticated' as const, supabase: null, storeId: null }
+
+  const { data: vendor } = await supabase
+    .from('vendors')
+    .select('store_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!vendor) return { error: 'No store assigned' as const, supabase: null, storeId: null }
+  return { error: null, supabase, storeId: vendor.store_id as string }
+}
+
+export async function getVendorStore() {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error', data: null }
+
+  const { data, error: queryError } = await supabase
+    .from('stores')
+    .select('id, name, chain, address, zip_code, lat, lng, phone, website_url')
+    .eq('id', storeId)
+    .single()
+
+  if (queryError) return { error: queryError.message, data: null }
+  return { data }
+}
+
+export async function getStoreProducts() {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error', data: [] }
+
+  const { data, error: queryError } = await supabase
+    .from('store_products')
+    .select(`
+      id, price, sale_price, in_stock, data_source, updated_at,
+      products (
+        id, name, brand, unit_size,
+        product_categories (name)
+      )
+    `)
+    .eq('store_id', storeId)
+    .order('updated_at', { ascending: false })
+
+  if (queryError) return { error: queryError.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function getProductPriceHistory(storeProductId: string) {
+  const { error, supabase } = await requireVendor()
+  if (error || !supabase) return { error: error || 'Unknown error', data: [] }
+
+  const { data, error: queryError } = await supabase
+    .from('store_product_price_history')
+    .select('price, sale_price, created_at')
+    .eq('store_product_id', storeProductId)
+    .order('created_at', { ascending: true })
+
+  if (queryError) return { error: queryError.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function getStoreReviews() {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error', data: [] }
+
+  const { data, error: queryError } = await supabase
+    .from('store_reviews')
+    .select(`
+      id, rating, comment, created_at,
+      users (first_name, last_name)
+    `)
+    .eq('store_id', storeId)
+    .order('created_at', { ascending: false })
+
+  if (queryError) return { error: queryError.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function searchCatalog(query: string) {
+  const { error, supabase } = await requireVendor()
+  if (error || !supabase) return { error: error || 'Unknown error', data: [] }
+
+  const { data, error: queryError } = await supabase
+    .from('products')
+    .select(`
+      id, name, brand, unit_size,
+      product_categories (name)
+    `)
+    .ilike('name', `%${query}%`)
+    .limit(10)
+
+  if (queryError) return { error: queryError.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function updateProductPrice(storeProductId: string, price: number, salePrice: number | null) {
+  const { error, supabase } = await requireVendor()
+  if (error || !supabase) return { error: error || 'Unknown error' }
+
+  const { error: updateError } = await supabase
+    .from('store_products')
+    .update({ price, sale_price: salePrice, data_source: 'vendor', updated_at: new Date().toISOString() })
+    .eq('id', storeProductId)
+
+  if (updateError) return { error: updateError.message }
+  return { success: true }
+}
+
+export async function toggleProductStock(storeProductId: string, inStock: boolean) {
+  const { error, supabase } = await requireVendor()
+  if (error || !supabase) return { error: error || 'Unknown error' }
+
+  const { error: updateError } = await supabase
+    .from('store_products')
+    .update({ in_stock: inStock, data_source: 'vendor', updated_at: new Date().toISOString() })
+    .eq('id', storeProductId)
+
+  if (updateError) return { error: updateError.message }
+  return { success: true }
+}
+
+export async function addCatalogProduct(productId: string, price: number) {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
+
+  const { error: insertError } = await supabase
+    .from('store_products')
+    .insert({
+      store_id: storeId,
+      product_id: productId,
+      price,
+      sale_price: null,
+      in_stock: true,
+      data_source: 'vendor',
+    })
+
+  if (insertError) return { error: insertError.message }
+  return { success: true }
+}
+
+export async function createAndAddProduct(data: { name: string; brand: string; category: string; unitSize: string; price: number }) {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
+
+  // Find or create the category
+  let categoryId: string
+  const { data: existingCat } = await supabase
+    .from('product_categories')
+    .select('id')
+    .ilike('name', data.category)
+    .single()
+
+  if (existingCat) {
+    categoryId = existingCat.id
+  } else {
+    const { data: newCat, error: catError } = await supabase
+      .from('product_categories')
+      .insert({ name: data.category, slug: data.category.toLowerCase().replace(/\s+/g, '-') })
+      .select('id')
+      .single()
+
+    if (catError || !newCat) return { error: catError?.message || 'Failed to create category' }
+    categoryId = newCat.id
+  }
+
+  // Create the product
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .insert({
+      name: data.name,
+      brand: data.brand || null,
+      unit_size: data.unitSize,
+      category_id: categoryId,
+    })
+    .select('id')
+    .single()
+
+  if (productError || !product) return { error: productError?.message || 'Failed to create product' }
+
+  // Add to store
+  const { error: storeProductError } = await supabase
+    .from('store_products')
+    .insert({
+      store_id: storeId,
+      product_id: product.id,
+      price: data.price,
+      sale_price: null,
+      in_stock: true,
+      data_source: 'vendor',
+    })
+
+  if (storeProductError) return { error: storeProductError.message }
+  return { success: true }
+}
