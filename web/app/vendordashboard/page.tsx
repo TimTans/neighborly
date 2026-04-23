@@ -143,6 +143,106 @@ const transformCatalog = (raw: any[]): CatalogProduct[] =>
   }));
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/* ═══ PAGINATION CONTROLS ═══ */
+
+const PaginationControls: React.FC<{
+  page: number;
+  totalPages: number;
+  onChange: (p: number) => void;
+}> = ({ page, totalPages, onChange }) => {
+  const [jumpValue, setJumpValue] = useState("");
+
+  const go = (p: number) => onChange(Math.max(1, Math.min(totalPages, p)));
+
+  const handleJump = () => {
+    const n = parseInt(jumpValue, 10);
+    if (!isNaN(n)) go(n);
+    setJumpValue("");
+  };
+
+  // Build the list of page numbers to render, collapsing long ranges with "…"
+  const pages: (number | "…")[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push("…");
+    const start = Math.max(2, page - 1);
+    const end = Math.min(totalPages - 1, page + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (page < totalPages - 2) pages.push("…");
+    pages.push(totalPages);
+  }
+
+  const btnBase =
+    "h-8 min-w-[32px] px-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center";
+  const btnIdle = "border border-stone-200 bg-white text-stone-600 hover:bg-stone-50";
+  const btnActive = "bg-green-800 text-white border border-green-800";
+  const btnDisabled = "opacity-40 cursor-not-allowed";
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+      <button
+        onClick={() => go(page - 1)}
+        disabled={page === 1}
+        className={`${btnBase} ${btnIdle} ${page === 1 ? btnDisabled : ""}`}
+      >
+        ← Prev
+      </button>
+
+      {pages.map((p, i) =>
+        p === "…" ? (
+          <span key={`e${i}`} className="px-1 text-stone-400 text-xs select-none">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => go(p)}
+            className={`${btnBase} ${p === page ? btnActive : btnIdle}`}
+          >
+            {p}
+          </button>
+        ),
+      )}
+
+      <button
+        onClick={() => go(page + 1)}
+        disabled={page === totalPages}
+        className={`${btnBase} ${btnIdle} ${page === totalPages ? btnDisabled : ""}`}
+      >
+        Next →
+      </button>
+
+      <div className="flex items-center gap-1.5 ml-3 pl-3 border-l border-stone-200">
+        <span className="text-xs text-stone-400">Go to</span>
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={jumpValue}
+          onChange={(e) => setJumpValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleJump();
+            }
+          }}
+          placeholder={String(page)}
+          className="w-14 px-2 py-1.5 text-xs font-semibold text-center border border-stone-200 rounded-lg outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 bg-white"
+        />
+        <button
+          onClick={handleJump}
+          disabled={!jumpValue}
+          className={`${btnBase} ${btnIdle} ${!jumpValue ? btnDisabled : ""}`}
+        >
+          Go
+        </button>
+      </div>
+    </div>
+  );
+};
+
 /* ═══ COMPONENT ═══ */
 
 const VendorDashboard: React.FC = () => {
@@ -168,6 +268,12 @@ const VendorDashboard: React.FC = () => {
   const [newProduct, setNewProduct] = useState({ name: "", brand: "", category: "Produce", unit_size: "", price: "" });
   const priceInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  /* ── Pagination state ── */
+  const PRODUCTS_PER_PAGE = 10;
+  const SALES_PER_PAGE = 9;
+  const [productPage, setProductPage] = useState(1);
+  const [salePage, setSalePage] = useState(1);
 
   /* ── Data fetching ── */
   const refreshProducts = useCallback(async () => {
@@ -216,8 +322,28 @@ const VendorDashboard: React.FC = () => {
   /* ── Computed values ── */
   const inStockCount = storeProducts.filter((p) => p.in_stock).length;
   const outOfStockCount = storeProducts.filter((p) => !p.in_stock).length;
-  const onSaleCount = storeProducts.filter((p) => p.sale_price !== null).length;
+  const saleProducts = storeProducts.filter((p) => p.sale_price !== null);
+  const onSaleCount = saleProducts.length;
   const stockPct = storeProducts.length ? Math.round((inStockCount / storeProducts.length) * 100) : 0;
+
+  /* ── Paginated slices ── */
+  const totalProductPages = Math.max(1, Math.ceil(storeProducts.length / PRODUCTS_PER_PAGE));
+  const totalSalePages = Math.max(1, Math.ceil(saleProducts.length / SALES_PER_PAGE));
+  const pagedProducts = storeProducts.slice(
+    (productPage - 1) * PRODUCTS_PER_PAGE,
+    productPage * PRODUCTS_PER_PAGE,
+  );
+  const pagedSales = saleProducts.slice(
+    (salePage - 1) * SALES_PER_PAGE,
+    salePage * SALES_PER_PAGE,
+  );
+
+  useEffect(() => {
+    if (productPage > totalProductPages) setProductPage(totalProductPages);
+  }, [productPage, totalProductPages]);
+  useEffect(() => {
+    if (salePage > totalSalePages) setSalePage(totalSalePages);
+  }, [salePage, totalSalePages]);
   const avgRating = reviews.length
     ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
     : "0.0";
@@ -567,7 +693,7 @@ const VendorDashboard: React.FC = () => {
             <div className="text-center py-12 text-stone-400 text-sm">
               No products yet. Click &ldquo;+ Add Product&rdquo; to get started.
             </div>
-          ) : storeProducts.map((p) => {
+          ) : pagedProducts.map((p) => {
             const isEditing = editingId === p.id;
             const hasHistory = !!priceHistories[p.id] && priceHistories[p.id].length > 0;
             const isHistoryOpen = historyOpen === p.id;
@@ -705,8 +831,23 @@ const VendorDashboard: React.FC = () => {
 
           <div className="flex justify-between items-center mt-4 pt-4 border-t-2 border-stone-100">
             <span className="text-sm text-stone-400">
-              {storeProducts.length} products · {onSaleCount} on sale · {outOfStockCount} out of stock
+              {storeProducts.length > 0 ? (
+                <>
+                  Showing {(productPage - 1) * PRODUCTS_PER_PAGE + 1}
+                  –{Math.min(productPage * PRODUCTS_PER_PAGE, storeProducts.length)} of{" "}
+                  {storeProducts.length} products · {onSaleCount} on sale · {outOfStockCount} out of stock
+                </>
+              ) : (
+                <>0 products</>
+              )}
             </span>
+            {totalProductPages > 1 && (
+              <PaginationControls
+                page={productPage}
+                totalPages={totalProductPages}
+                onChange={setProductPage}
+              />
+            )}
           </div>
         </div>
 
@@ -720,31 +861,47 @@ const VendorDashboard: React.FC = () => {
             Products on Sale
           </div>
           {onSaleCount > 0 ? (
-            <div className="grid grid-cols-3 gap-3">
-              {storeProducts.filter((p) => p.sale_price !== null).map((p) => {
-                const pctOff = Math.round(((p.price - p.sale_price!) / p.price) * 100);
-                return (
-                  <div key={p.id} className="bg-stone-50 rounded-2xl p-[18px] border border-stone-100">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <div className="font-semibold text-[15px]">{p.name}</div>
-                        <div className="text-xs text-stone-400">{p.brand || "Generic"} · per {p.unit_size}</div>
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                {pagedSales.map((p) => {
+                  const pctOff = Math.round(((p.price - p.sale_price!) / p.price) * 100);
+                  return (
+                    <div key={p.id} className="bg-stone-50 rounded-2xl p-[18px] border border-stone-100">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="font-semibold text-[15px]">{p.name}</div>
+                          <div className="text-xs text-stone-400">{p.brand || "Generic"} · per {p.unit_size}</div>
+                        </div>
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
+                          SALE
+                        </span>
                       </div>
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
-                        SALE
-                      </span>
+                      <div className="flex items-baseline gap-2.5">
+                        <span className="fraunces text-2xl font-semibold text-green-800">${p.sale_price!.toFixed(2)}</span>
+                        <span className="text-sm text-stone-300 line-through">${p.price.toFixed(2)}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
+                          −{pctOff}%
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-baseline gap-2.5">
-                      <span className="fraunces text-2xl font-semibold text-green-800">${p.sale_price!.toFixed(2)}</span>
-                      <span className="text-sm text-stone-300 line-through">${p.price.toFixed(2)}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
-                        −{pctOff}%
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between items-center mt-5 pt-4 border-t-2 border-stone-100">
+                <span className="text-sm text-stone-400">
+                  Showing {(salePage - 1) * SALES_PER_PAGE + 1}
+                  –{Math.min(salePage * SALES_PER_PAGE, saleProducts.length)} of{" "}
+                  {saleProducts.length} on sale
+                </span>
+                {totalSalePages > 1 && (
+                  <PaginationControls
+                    page={salePage}
+                    totalPages={totalSalePages}
+                    onChange={setSalePage}
+                  />
+                )}
+              </div>
+            </>
           ) : (
             <div className="text-center py-8 text-stone-400 text-sm">
               No active sales. Set a sale price on any product to create a deal.
