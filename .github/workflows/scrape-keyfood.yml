@@ -1,6 +1,6 @@
 name: Scrape KeyFood
 
-on:
+"on":
   schedule:
     # 5 AM UTC = 1 AM EDT (summer) / 12 AM EST (winter). DST drift is fine for scrapers.
     - cron: "0 5 * * *"

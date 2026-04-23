@@ -5,7 +5,7 @@ services:
     rootDir: backend
     dockerfilePath: ./Dockerfile
     plan: free
-    region: oregon
+    region: virginia
     healthCheckPath: /health
     envVars:
       - key: ENVIRONMENT
