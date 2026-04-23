@@ -13,6 +13,7 @@
     "@react-google-maps/api": "^2.20.8",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
+    "mapbox-gl": "^3.22.0",
     "next": "16.2.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
