@@ -265,7 +265,19 @@ const VendorDashboard: React.FC = () => {
   const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
   const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogProduct | null>(null);
   const [catalogPrice, setCatalogPrice] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", brand: "", category: "Produce", unit_size: "", price: "" });
+  const [catalogSalePrice, setCatalogSalePrice] = useState("");
+  const [catalogInStock, setCatalogInStock] = useState(true);
+  const [newProduct, setNewProduct] = useState({
+    name: "",
+    brand: "",
+    category: "Produce",
+    unit_size: "",
+    price: "",
+    sale_price: "",
+    in_stock: true,
+  });
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const priceInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -450,38 +462,110 @@ const VendorDashboard: React.FC = () => {
     setCatalogResults([]);
     setSelectedCatalogItem(null);
     setCatalogPrice("");
-    setNewProduct({ name: "", brand: "", category: "Produce", unit_size: "", price: "" });
+    setCatalogSalePrice("");
+    setCatalogInStock(true);
+    setNewProduct({
+      name: "",
+      brand: "",
+      category: "Produce",
+      unit_size: "",
+      price: "",
+      sale_price: "",
+      in_stock: true,
+    });
+    setModalError(null);
+    setSubmitting(false);
   };
 
-  const closeModal = () => setShowProductModal(false);
+  const closeModal = () => {
+    setShowProductModal(false);
+    setModalError(null);
+    setSubmitting(false);
+  };
 
   const addFromCatalog = async () => {
+    if (submitting) return;
+    setModalError(null);
     if (!selectedCatalogItem) return;
-    const price = parseFloat(catalogPrice);
-    if (isNaN(price) || price <= 0) return;
 
-    const res = await addCatalogProduct(selectedCatalogItem.id, price);
-    if ('success' in res) {
-      await refreshProducts();
+    const price = parseFloat(catalogPrice);
+    if (isNaN(price) || price <= 0) {
+      setModalError("Enter a valid price greater than 0.");
+      return;
     }
+
+    let salePrice: number | null = null;
+    if (catalogSalePrice.trim()) {
+      const sp = parseFloat(catalogSalePrice);
+      if (isNaN(sp) || sp <= 0) {
+        setModalError("Sale price must be greater than 0.");
+        return;
+      }
+      if (sp >= price) {
+        setModalError("Sale price must be lower than the regular price.");
+        return;
+      }
+      salePrice = sp;
+    }
+
+    setSubmitting(true);
+    const res = await addCatalogProduct(selectedCatalogItem.id, price, salePrice, catalogInStock);
+    if (!('success' in res)) {
+      setModalError(res.error ?? "Something went wrong. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+    await refreshProducts();
     closeModal();
   };
 
   const createNewProduct = async () => {
-    const price = parseFloat(newProduct.price);
-    if (!newProduct.name.trim() || isNaN(price)) return;
+    if (submitting) return;
+    setModalError(null);
 
+    const name = newProduct.name.trim();
+    if (!name) {
+      setModalError("Product name is required.");
+      return;
+    }
+
+    const price = parseFloat(newProduct.price);
+    if (isNaN(price) || price <= 0) {
+      setModalError("Enter a valid price greater than 0.");
+      return;
+    }
+
+    let salePrice: number | null = null;
+    if (newProduct.sale_price.trim()) {
+      const sp = parseFloat(newProduct.sale_price);
+      if (isNaN(sp) || sp <= 0) {
+        setModalError("Sale price must be greater than 0.");
+        return;
+      }
+      if (sp >= price) {
+        setModalError("Sale price must be lower than the regular price.");
+        return;
+      }
+      salePrice = sp;
+    }
+
+    setSubmitting(true);
     const res = await createAndAddProduct({
-      name: newProduct.name.trim(),
+      name,
       brand: newProduct.brand.trim(),
       category: newProduct.category,
       unitSize: newProduct.unit_size.trim(),
       price,
+      salePrice,
+      inStock: newProduct.in_stock,
     });
 
-    if ('success' in res) {
-      await refreshProducts();
+    if (!('success' in res)) {
+      setModalError(res.error ?? "Something went wrong. Please try again.");
+      setSubmitting(false);
+      return;
     }
+    await refreshProducts();
     closeModal();
   };
 
@@ -1240,7 +1324,14 @@ const VendorDashboard: React.FC = () => {
 
               <div className="flex gap-1 bg-stone-100 rounded-full p-1">
                 <button
-                  onClick={() => { setModalMode("search"); setSelectedCatalogItem(null); setCatalogPrice(""); }}
+                  onClick={() => {
+                    setModalMode("search");
+                    setSelectedCatalogItem(null);
+                    setCatalogPrice("");
+                    setCatalogSalePrice("");
+                    setCatalogInStock(true);
+                    setModalError(null);
+                  }}
                   className={`flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer
                     ${modalMode === "search"
                       ? "bg-green-800 text-white shadow-sm"
@@ -1249,7 +1340,7 @@ const VendorDashboard: React.FC = () => {
                   Search Catalog
                 </button>
                 <button
-                  onClick={() => setModalMode("create")}
+                  onClick={() => { setModalMode("create"); setModalError(null); }}
                   className={`flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer
                     ${modalMode === "create"
                       ? "bg-green-800 text-white shadow-sm"
@@ -1262,6 +1353,17 @@ const VendorDashboard: React.FC = () => {
 
             {/* Modal Body */}
             <div className="px-7 py-5 overflow-y-auto flex-1">
+
+              {modalError && (
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-start gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 mt-0.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <span>{modalError}</span>
+                </div>
+              )}
 
               {modalMode === "search" && (
                 <div>
@@ -1312,7 +1414,13 @@ const VendorDashboard: React.FC = () => {
                                 ${isSelected
                                   ? "bg-green-50 border-green-200"
                                   : "bg-stone-50 border-stone-100 hover:border-green-200 hover:bg-green-50/30"}`}
-                              onClick={() => { setSelectedCatalogItem(item); setCatalogPrice(""); }}
+                              onClick={() => {
+                                setSelectedCatalogItem(item);
+                                setCatalogPrice("");
+                                setCatalogSalePrice("");
+                                setCatalogInStock(true);
+                                setModalError(null);
+                              }}
                             >
                               <div className="flex items-center gap-3">
                                 <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: catColor(item.category) }}/>
@@ -1332,26 +1440,56 @@ const VendorDashboard: React.FC = () => {
                               )}
                             </div>
                             {isSelected && (
-                              <div className="flex items-center gap-3 mt-2 ml-4">
-                                <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">Your Price</label>
-                                <div className="relative">
-                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
-                                  <input
-                                    value={catalogPrice}
-                                    onChange={(e) => setCatalogPrice(e.target.value)}
-                                    placeholder="0.00"
-                                    autoFocus
-                                    onKeyDown={(e) => { if (e.key === "Enter") addFromCatalog(); }}
-                                    className="w-28 border border-stone-200 rounded-xl pl-7 pr-3 py-2 text-sm bg-white outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
-                                  />
+                              <div className="mt-2 ml-4 p-4 rounded-xl bg-stone-50 border border-stone-100 flex flex-col gap-3">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">Price *</label>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                                      <input
+                                        value={catalogPrice}
+                                        onChange={(e) => setCatalogPrice(e.target.value)}
+                                        placeholder="0.00"
+                                        autoFocus
+                                        inputMode="decimal"
+                                        onKeyDown={(e) => { if (e.key === "Enter") addFromCatalog(); }}
+                                        className="w-28 border border-stone-200 rounded-xl pl-7 pr-3 py-2 text-sm bg-white outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">Sale Price</label>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                                      <input
+                                        value={catalogSalePrice}
+                                        onChange={(e) => setCatalogSalePrice(e.target.value)}
+                                        placeholder="optional"
+                                        inputMode="decimal"
+                                        onKeyDown={(e) => { if (e.key === "Enter") addFromCatalog(); }}
+                                        className="w-28 border border-stone-200 rounded-xl pl-7 pr-3 py-2 text-sm bg-white outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                                      />
+                                    </div>
+                                  </div>
+                                  <label className="flex items-center gap-2 text-sm text-stone-600 cursor-pointer select-none mt-5">
+                                    <input
+                                      type="checkbox"
+                                      checked={catalogInStock}
+                                      onChange={(e) => setCatalogInStock(e.target.checked)}
+                                      className="w-4 h-4 accent-green-700 cursor-pointer"
+                                    />
+                                    In stock
+                                  </label>
                                 </div>
-                                <button
-                                  onClick={addFromCatalog}
-                                  disabled={!catalogPrice || isNaN(parseFloat(catalogPrice)) || parseFloat(catalogPrice) <= 0}
-                                  className="bg-green-800 text-white border-none px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                  Add
-                                </button>
+                                <div className="flex justify-end">
+                                  <button
+                                    onClick={addFromCatalog}
+                                    disabled={submitting || !catalogPrice || isNaN(parseFloat(catalogPrice)) || parseFloat(catalogPrice) <= 0}
+                                    className="bg-green-800 text-white border-none px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  >
+                                    {submitting ? "Adding..." : "Add"}
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1398,16 +1536,17 @@ const VendorDashboard: React.FC = () => {
                     </div>
                   </div>
 
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Unit Size</label>
+                    <input
+                      value={newProduct.unit_size}
+                      onChange={(e) => setNewProduct({ ...newProduct, unit_size: e.target.value })}
+                      placeholder="e.g. lb, gal, dozen"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Unit Size</label>
-                      <input
-                        value={newProduct.unit_size}
-                        onChange={(e) => setNewProduct({ ...newProduct, unit_size: e.target.value })}
-                        placeholder="e.g. lb, gal, dozen"
-                        className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
-                      />
-                    </div>
                     <div>
                       <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Price *</label>
                       <div className="relative">
@@ -1416,11 +1555,37 @@ const VendorDashboard: React.FC = () => {
                           value={newProduct.price}
                           onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
                           placeholder="0.00"
+                          inputMode="decimal"
+                          onKeyDown={(e) => { if (e.key === "Enter") createNewProduct(); }}
+                          className="w-full border border-stone-200 rounded-xl pl-8 pr-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Sale Price</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                        <input
+                          value={newProduct.sale_price}
+                          onChange={(e) => setNewProduct({ ...newProduct, sale_price: e.target.value })}
+                          placeholder="optional"
+                          inputMode="decimal"
+                          onKeyDown={(e) => { if (e.key === "Enter") createNewProduct(); }}
                           className="w-full border border-stone-200 rounded-xl pl-8 pr-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
                         />
                       </div>
                     </div>
                   </div>
+
+                  <label className="flex items-center gap-2 text-sm text-stone-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={newProduct.in_stock}
+                      onChange={(e) => setNewProduct({ ...newProduct, in_stock: e.target.checked })}
+                      className="w-4 h-4 accent-green-700 cursor-pointer"
+                    />
+                    In stock
+                  </label>
 
                   {newProduct.name.trim() && (
                     <div className="bg-stone-50 rounded-xl p-4 border border-stone-100 mt-2">
@@ -1433,6 +1598,8 @@ const VendorDashboard: React.FC = () => {
                             {newProduct.brand || "Generic"} · {newProduct.category}
                             {newProduct.unit_size && ` · per ${newProduct.unit_size}`}
                             {newProduct.price && ` · $${parseFloat(newProduct.price).toFixed(2)}`}
+                            {newProduct.sale_price && ` · sale $${parseFloat(newProduct.sale_price).toFixed(2)}`}
+                            {!newProduct.in_stock && ` · out of stock`}
                           </div>
                         </div>
                       </div>
@@ -1452,10 +1619,10 @@ const VendorDashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={createNewProduct}
-                  disabled={!newProduct.name.trim() || !newProduct.price}
+                  disabled={submitting || !newProduct.name.trim() || !newProduct.price}
                   className="bg-green-800 text-white border-none px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Add Product
+                  {submitting ? "Adding..." : "Add Product"}
                 </button>
               </div>
             )}

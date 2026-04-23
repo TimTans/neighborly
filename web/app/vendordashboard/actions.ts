@@ -125,7 +125,12 @@ export async function toggleProductStock(storeProductId: string, inStock: boolea
   return { success: true }
 }
 
-export async function addCatalogProduct(productId: string, price: number) {
+export async function addCatalogProduct(
+  productId: string,
+  price: number,
+  salePrice: number | null = null,
+  inStock: boolean = true,
+) {
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
@@ -135,16 +140,29 @@ export async function addCatalogProduct(productId: string, price: number) {
       store_id: storeId,
       product_id: productId,
       price,
-      sale_price: null,
-      in_stock: true,
+      sale_price: salePrice,
+      in_stock: inStock,
       data_source: 'vendor',
     })
 
-  if (insertError) return { error: insertError.message }
+  if (insertError) {
+    if (insertError.code === '23505') {
+      return { error: 'This product is already in your store.' }
+    }
+    return { error: insertError.message }
+  }
   return { success: true }
 }
 
-export async function createAndAddProduct(data: { name: string; brand: string; category: string; unitSize: string; price: number }) {
+export async function createAndAddProduct(data: {
+  name: string
+  brand: string
+  category: string
+  unitSize: string
+  price: number
+  salePrice?: number | null
+  inStock?: boolean
+}) {
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
@@ -175,7 +193,7 @@ export async function createAndAddProduct(data: { name: string; brand: string; c
     .insert({
       name: data.name,
       brand: data.brand || null,
-      unit_size: data.unitSize,
+      unit_size: data.unitSize || null,
       category_id: categoryId,
     })
     .select('id')
@@ -190,8 +208,8 @@ export async function createAndAddProduct(data: { name: string; brand: string; c
       store_id: storeId,
       product_id: product.id,
       price: data.price,
-      sale_price: null,
-      in_stock: true,
+      sale_price: data.salePrice ?? null,
+      in_stock: data.inStock ?? true,
       data_source: 'vendor',
     })
 
