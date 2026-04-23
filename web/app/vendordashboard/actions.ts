@@ -35,11 +35,17 @@ export async function getStoreProducts() {
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error', data: [] }
 
+  // TODO: move to proper server-side pagination (separate count + page queries,
+  // server-side search, dedicated export endpoint). For now we hard-cap the
+  // total rows so a vendor with a huge catalog can't make this loop run away.
   const PAGE_SIZE = 1000
+  const MAX_ROWS = 5000
   const allRows: unknown[] = []
   let from = 0
 
-  while (true) {
+  while (from < MAX_ROWS) {
+    const remaining = MAX_ROWS - from
+    const pageSize = Math.min(PAGE_SIZE, remaining)
     const { data, error: queryError } = await supabase
       .from('store_products')
       .select(`
@@ -52,14 +58,14 @@ export async function getStoreProducts() {
       .eq('store_id', storeId)
       .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1)
+      .range(from, from + pageSize - 1)
 
     if (queryError) return { error: queryError.message, data: [] }
     if (!data || data.length === 0) break
 
     allRows.push(...data)
-    if (data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
+    if (data.length < pageSize) break
+    from += pageSize
   }
 
   return { data: allRows }
@@ -114,28 +120,38 @@ export async function searchCatalog(query: string) {
 }
 
 export async function updateProductPrice(storeProductId: string, price: number, salePrice: number | null) {
-  const { error, supabase } = await requireVendor()
-  if (error || !supabase) return { error: error || 'Unknown error' }
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
-  const { error: updateError } = await supabase
+  const { data: updatedRows, error: updateError } = await supabase
     .from('store_products')
     .update({ price, sale_price: salePrice, data_source: 'vendor', updated_at: new Date().toISOString() })
     .eq('id', storeProductId)
+    .eq('store_id', storeId)
+    .select('id')
 
   if (updateError) return { error: updateError.message }
+  if (!updatedRows || updatedRows.length === 0) {
+    return { error: 'Product not found or not owned by this store.' }
+  }
   return { success: true }
 }
 
 export async function toggleProductStock(storeProductId: string, inStock: boolean) {
-  const { error, supabase } = await requireVendor()
-  if (error || !supabase) return { error: error || 'Unknown error' }
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
-  const { error: updateError } = await supabase
+  const { data: updatedRows, error: updateError } = await supabase
     .from('store_products')
     .update({ in_stock: inStock, data_source: 'vendor', updated_at: new Date().toISOString() })
     .eq('id', storeProductId)
+    .eq('store_id', storeId)
+    .select('id')
 
   if (updateError) return { error: updateError.message }
+  if (!updatedRows || updatedRows.length === 0) {
+    return { error: 'Product not found or not owned by this store.' }
+  }
   return { success: true }
 }
 
