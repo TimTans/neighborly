@@ -125,6 +125,20 @@ export async function toggleProductStock(storeProductId: string, inStock: boolea
   return { success: true }
 }
 
+export async function deleteStoreProduct(storeProductId: string) {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
+
+  const { error: deleteError } = await supabase
+    .from('store_products')
+    .delete()
+    .eq('id', storeProductId)
+    .eq('store_id', storeId)
+
+  if (deleteError) return { error: deleteError.message }
+  return { success: true }
+}
+
 export async function addCatalogProduct(
   productId: string,
   price: number,

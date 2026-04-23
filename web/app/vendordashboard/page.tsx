@@ -12,6 +12,7 @@ import {
   toggleProductStock,
   addCatalogProduct,
   createAndAddProduct,
+  deleteStoreProduct,
 } from "./actions";
 
 /* ═══ INTERFACES ═══ */
@@ -259,6 +260,8 @@ const VendorDashboard: React.FC = () => {
   const [editPrice, setEditPrice] = useState<string>("");
   const [editSale, setEditSale] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -433,6 +436,18 @@ const VendorDashboard: React.FC = () => {
         )
       );
     }
+  };
+
+  const confirmDelete = async (id: string) => {
+    setDeletingId(id);
+    const res = await deleteStoreProduct(id);
+    if ('success' in res) {
+      setStoreProducts((prev) => prev.filter((p) => p.id !== id));
+      if (historyOpen === id) setHistoryOpen(null);
+      if (editingId === id) setEditingId(null);
+    }
+    setDeletingId(null);
+    setPendingDeleteId(null);
   };
 
   const handleEditKeydown = (e: React.KeyboardEvent, id: string) => {
@@ -823,7 +838,7 @@ const VendorDashboard: React.FC = () => {
           </div>
 
           {/* Table header */}
-          <div className="grid grid-cols-[2.2fr_0.8fr_0.9fr_0.7fr_0.7fr_0.7fr_80px] items-center py-3 border-b-2 border-stone-100 text-[11px] font-semibold text-stone-300 uppercase tracking-wider">
+          <div className="grid grid-cols-[2.2fr_0.8fr_0.9fr_0.7fr_0.7fr_0.7fr_120px] items-center py-3 border-b-2 border-stone-100 text-[11px] font-semibold text-stone-300 uppercase tracking-wider">
             <span>Product</span>
             <span>Price</span>
             <span>Sale Price</span>
@@ -854,7 +869,7 @@ const VendorDashboard: React.FC = () => {
 
             return (
               <div key={p.id}>
-                <div className="grid grid-cols-[2.2fr_0.8fr_0.9fr_0.7fr_0.7fr_0.7fr_80px] items-center py-3.5 border-b border-stone-100 last:border-b-0 text-sm">
+                <div className="grid grid-cols-[2.2fr_0.8fr_0.9fr_0.7fr_0.7fr_0.7fr_120px] items-center py-3.5 border-b border-stone-100 last:border-b-0 text-sm">
 
                   <div className="flex items-center gap-2.5">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: catColor(p.category) }}/>
@@ -933,6 +948,21 @@ const VendorDashboard: React.FC = () => {
                           className="text-stone-400 text-xs px-2 py-1.5 rounded-lg hover:bg-stone-100 transition-colors border-none bg-transparent cursor-pointer"
                         >✕</button>
                       </>
+                    ) : pendingDeleteId === p.id ? (
+                      <>
+                        <button
+                          onClick={() => confirmDelete(p.id)}
+                          disabled={deletingId === p.id}
+                          className="text-red-600 font-semibold text-xs px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {deletingId === p.id ? "..." : "Delete"}
+                        </button>
+                        <button
+                          onClick={() => setPendingDeleteId(null)}
+                          disabled={deletingId === p.id}
+                          className="text-stone-400 text-xs px-2 py-1.5 rounded-lg hover:bg-stone-100 transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >✕</button>
+                      </>
                     ) : (
                       <>
                         <button
@@ -955,10 +985,36 @@ const VendorDashboard: React.FC = () => {
                             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                           </svg>
                         </button>
+                        <button
+                          onClick={() => setPendingDeleteId(p.id)}
+                          title="Remove from store"
+                          className="text-stone-400 p-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors border-none bg-transparent cursor-pointer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                            <path d="M10 11v6"/>
+                            <path d="M14 11v6"/>
+                            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+                          </svg>
+                        </button>
                       </>
                     )}
                   </div>
                 </div>
+
+                {pendingDeleteId === p.id && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 my-1 mb-2 flex items-center gap-2 text-sm text-red-700">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>
+                      Remove <span className="font-semibold">{p.name}</span> from your store? This will also delete its price history.
+                    </span>
+                  </div>
+                )}
 
                 {/* Price history panel */}
                 {isHistoryOpen && hasHistory && (
