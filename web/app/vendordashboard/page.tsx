@@ -187,6 +187,13 @@ const VendorDashboard: React.FC = () => {
     if (e.key === "Escape") cancelEdit();
   };
 
+  /* ── Rating helpers ── */
+  const ratingCounts = [5, 4, 3, 2, 1].map((r) => ({
+    rating: r,
+    count: REVIEWS.filter((rv) => rv.rating === r).length,
+    pct: REVIEWS.length ? (REVIEWS.filter((rv) => rv.rating === r).length / REVIEWS.length) * 100 : 0,
+  }));
+
   return (
     <div
       className="min-h-screen text-stone-900"
@@ -275,7 +282,10 @@ const VendorDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Dashboard Grid ── */}
+      {/* ═══════════════════════════════════════════ */}
+      {/* ══ PRODUCTS TAB ══ */}
+      {/* ═══════════════════════════════════════════ */}
+      {activeTab === "products" && (
       <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-3 gap-5">
 
         {/* ── Total Products ── */}
@@ -340,22 +350,18 @@ const VendorDashboard: React.FC = () => {
           </div>
           <div className="text-sm text-stone-400 mb-4">{REVIEWS.length} reviews</div>
           <div className="flex flex-col gap-1.5">
-            {[5, 4, 3, 2, 1].map((r) => {
-              const count = REVIEWS.filter((rv) => rv.rating === r).length;
-              const pct = REVIEWS.length ? (count / REVIEWS.length) * 100 : 0;
-              return (
-                <div key={r} className="flex items-center gap-2">
-                  <span className="text-xs text-stone-400 w-3 text-right">{r}</span>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="#D4700A" stroke="none">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
-                  <div className="flex-1 bg-stone-100 rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full rounded-full bg-orange-400" style={{ width: `${pct}%` }}/>
-                  </div>
-                  <span className="text-xs text-stone-400 w-4">{count}</span>
+            {ratingCounts.map(({ rating, count, pct }) => (
+              <div key={rating} className="flex items-center gap-2">
+                <span className="text-xs text-stone-400 w-3 text-right">{rating}</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="#D4700A" stroke="none">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                <div className="flex-1 bg-stone-100 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full rounded-full bg-orange-400" style={{ width: `${pct}%` }}/>
                 </div>
-              );
-            })}
+                <span className="text-xs text-stone-400 w-4">{count}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -543,8 +549,8 @@ const VendorDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* ── On Sale — col-span-2 ── */}
-        <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-2">
+        {/* ── On Sale — col-span-3 ── */}
+        <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 mb-5">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -553,7 +559,7 @@ const VendorDashboard: React.FC = () => {
             Products on Sale
           </div>
           {onSaleCount > 0 ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {storeProducts.filter((p) => p.sale_price !== null).map((p) => {
                 const pctOff = Math.round(((p.price - p.sale_price!) / p.price) * 100);
                 return (
@@ -585,34 +591,121 @@ const VendorDashboard: React.FC = () => {
           )}
         </div>
 
-        {/* ── Recent Reviews ── */}
+      </div>
+      )}
+
+      {/* ══ REVIEWS TAB ══ */}
+      {activeTab === "reviews" && (
+      <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-3 gap-5">
+
+        {/* ── Overall Rating Card ── */}
         <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 mb-4">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 mb-6">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </svg>
-            Recent Reviews
+            Overall Rating
           </div>
-          {REVIEWS.map((r, i) => (
-            <div key={i} className={`py-3.5 ${i < REVIEWS.length - 1 ? "border-b border-stone-100" : ""}`}>
-              <div className="flex justify-between items-center mb-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-semibold text-stone-500">
-                    {r.user_name.charAt(0)}
-                  </div>
-                  <span className="font-semibold text-sm">{r.user_name}</span>
-                </div>
-                <span className="text-[11px] text-stone-400">{fmtDate(r.created_at)}</span>
-              </div>
-              <div className="text-orange-500 text-sm tracking-wider ml-9 mb-1">{starsStr(r.rating)}</div>
-              {r.comment && (
-                <div className="text-sm text-stone-500 leading-relaxed ml-9">{r.comment}</div>
-              )}
+
+          <div className="text-center mb-8">
+            <div className="fraunces text-[72px] font-semibold leading-none text-orange-600">{avgRating}</div>
+            <div className="text-[26px] text-orange-500 tracking-widest mt-2">
+              {"★".repeat(Math.round(parseFloat(avgRating)))}{"☆".repeat(5 - Math.round(parseFloat(avgRating)))}
             </div>
-          ))}
+            <div className="text-sm text-stone-400 mt-2">Based on {REVIEWS.length} reviews</div>
+          </div>
+
+          {/* Rating Breakdown */}
+          <div className="flex flex-col gap-3">
+            {ratingCounts.map(({ rating, count, pct }) => (
+              <div key={rating} className="flex items-center gap-3">
+                <span className="text-sm font-medium text-stone-500 w-4 text-right">{rating}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#D4700A" stroke="none">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                <div className="flex-1 bg-stone-100 rounded-full h-2.5 overflow-hidden">
+                  <div className="h-full rounded-full bg-orange-400 transition-all duration-500" style={{ width: `${pct}%` }}/>
+                </div>
+                <span className="text-sm font-medium text-stone-500 w-6 text-right">{count}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Quick Stats */}
+          <div className="mt-8 pt-6 border-t border-stone-100 grid grid-cols-2 gap-4">
+            <div className="bg-stone-50 rounded-xl px-4 py-3 border border-stone-100 text-center">
+              <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">5-Star</div>
+              <div className="fraunces text-xl font-semibold text-green-800">
+                {REVIEWS.length ? Math.round((ratingCounts[0].count / REVIEWS.length) * 100) : 0}%
+              </div>
+            </div>
+            <div className="bg-stone-50 rounded-xl px-4 py-3 border border-stone-100 text-center">
+              <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">Avg Score</div>
+              <div className="fraunces text-xl font-semibold text-orange-600">{avgRating}</div>
+            </div>
+          </div>
         </div>
 
-        {/* ── Store Info — col-span-3 ── */}
+        {/* ── Customer Reviews List ── */}
+        <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-2">
+          <div className="flex justify-between items-center mb-5">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              Customer Reviews
+            </div>
+            <span className="text-xs font-medium text-stone-400 bg-stone-100 px-3 py-1.5 rounded-full">
+              {REVIEWS.length} total
+            </span>
+          </div>
+
+          <div className="flex flex-col">
+            {REVIEWS.map((r, i) => (
+              <div key={i} className={`py-5 ${i < REVIEWS.length - 1 ? "border-b border-stone-100" : ""}`}>
+                <div className="flex justify-between items-start mb-2.5">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white"
+                      style={{
+                        background: `linear-gradient(135deg, ${
+                          ["#2D6A4F", "#D94F30", "#1565C0", "#D4700A", "#6D6560"][i % 5]
+                        }, ${
+                          ["#52B788", "#F4A261", "#42A5F5", "#FFB74D", "#A1887F"][i % 5]
+                        })`,
+                      }}
+                    >
+                      {r.user_name.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-[15px]">{r.user_name}</div>
+                      <div className="text-orange-500 text-sm tracking-wider mt-0.5">{starsStr(r.rating)}</div>
+                    </div>
+                  </div>
+                  <span className="text-xs text-stone-400 bg-stone-50 px-3 py-1.5 rounded-full border border-stone-100">
+                    {fmtDate(r.created_at)}
+                  </span>
+                </div>
+                {r.comment ? (
+                  <div className="text-sm text-stone-600 leading-relaxed ml-[52px] bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+                    &ldquo;{r.comment}&rdquo;
+                  </div>
+                ) : (
+                  <div className="text-sm text-stone-300 italic ml-[52px]">No written review</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+      )}
+
+      {/* ══ STORE INFO TAB ══ */}
+      {activeTab === "store info" && (
+      <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-3 gap-5">
+
+        {/* ── Store Details ── */}
         <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-3">
           <div className="flex justify-between items-center mb-5">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400">
@@ -643,6 +736,8 @@ const VendorDashboard: React.FC = () => {
         </div>
 
       </div>
+      )}
+
     </div>
   );
 };
