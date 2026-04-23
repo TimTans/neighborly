@@ -107,6 +107,13 @@ const fmtDate = (iso: string): string =>
 
 const starsStr = (n: number): string => "★".repeat(n) + "☆".repeat(5 - n);
 
+const csvEscape = (value: string | number | boolean | null | undefined): string => {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (/[",\r\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+};
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const transformProducts = (raw: any[]): StoreProduct[] =>
   raw.map((sp) => ({
@@ -266,6 +273,7 @@ const VendorDashboard: React.FC = () => {
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogProduct | null>(null);
   const [catalogPrice, setCatalogPrice] = useState("");
   const [catalogSalePrice, setCatalogSalePrice] = useState("");
@@ -327,14 +335,27 @@ const VendorDashboard: React.FC = () => {
   /* ── Catalog search with debounce ── */
   useEffect(() => {
     if (modalMode !== "search" || catalogSearch.trim().length === 0) {
+      setCatalogLoading(false);
       setCatalogResults([]);
       return;
     }
+
+    let cancelled = false;
+    setCatalogLoading(true);
+    const query = catalogSearch.trim();
     const timer = setTimeout(async () => {
-      const res = await searchCatalog(catalogSearch);
-      if (res.data) setCatalogResults(transformCatalog(res.data));
+      try {
+        const res = await searchCatalog(query);
+        if (!cancelled) setCatalogResults(res.data ? transformCatalog(res.data) : []);
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
     }, 300);
-    return () => clearTimeout(timer);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [catalogSearch, modalMode]);
 
   /* ── Computed values ── */
@@ -469,12 +490,67 @@ const VendorDashboard: React.FC = () => {
     setHistoryOpen(storeProductId);
   };
 
+  const exportInventory = () => {
+    if (!storeProducts.length) return;
+
+    const headers = [
+      "Product Name",
+      "Brand",
+      "Category",
+      "Unit Size",
+      "Price",
+      "Sale Price",
+      "In Stock",
+      "Source",
+      "Last Updated (ISO)",
+      "Store Product ID",
+      "Catalog Product ID",
+    ];
+
+    const rows = storeProducts.map((p) => [
+      p.name,
+      p.brand || "Generic",
+      p.category,
+      p.unit_size,
+      p.price.toFixed(2),
+      p.sale_price !== null ? p.sale_price.toFixed(2) : "",
+      p.in_stock ? "Yes" : "No",
+      srcLabel(p.data_source),
+      p.updated_at,
+      p.id,
+      p.product_id,
+    ]);
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map(csvEscape).join(","))
+      .join("\r\n");
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const safeStoreName =
+      (store?.name || "store")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "store";
+    const fileName = `${safeStoreName}-inventory-${dateStamp}.csv`;
+
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   /* ── Modal helpers ── */
   const openModal = () => {
     setShowProductModal(true);
     setModalMode("search");
     setCatalogSearch("");
     setCatalogResults([]);
+    setCatalogLoading(false);
     setSelectedCatalogItem(null);
     setCatalogPrice("");
     setCatalogSalePrice("");
@@ -785,7 +861,11 @@ const VendorDashboard: React.FC = () => {
               Product Inventory
             </div>
             <div className="flex gap-2">
-              <button className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors">
+              <button
+                onClick={exportInventory}
+                disabled={!storeProducts.length}
+                className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 Export
               </button>
               <button onClick={openModal} className="bg-green-800 text-white border-none px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-900 transition-colors">
@@ -1445,6 +1525,11 @@ const VendorDashboard: React.FC = () => {
                       </div>
                       <div className="text-sm text-stone-400">Type to search the product catalog</div>
                       <div className="text-xs text-stone-300 mt-1">Or switch to &ldquo;Create New&rdquo; to add a custom product</div>
+                    </div>
+                  ) : catalogLoading ? (
+                    <div className="text-center py-10">
+                      <div className="inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-stone-200 border-t-green-700 animate-spin mb-2" />
+                      <div className="text-sm text-stone-400">Searching catalog...</div>
                     </div>
                   ) : catalogResults.length === 0 ? (
                     <div className="text-center py-10">
