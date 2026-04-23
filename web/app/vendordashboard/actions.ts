@@ -230,3 +230,38 @@ export async function createAndAddProduct(data: {
   if (storeProductError) return { error: storeProductError.message }
   return { success: true }
 }
+
+export async function updateVendorStoreInfo(data: {
+  name: string
+  chain?: string | null
+  address?: string | null
+  zipCode?: string | null
+  phone?: string | null
+  websiteUrl?: string | null
+}) {
+  const { error, supabase, storeId } = await requireVendor()
+  if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
+
+  const name = data.name.trim()
+  if (!name) return { error: 'Store name is required.' }
+
+  const { data: updatedRows, error: updateError } = await supabase
+    .from('stores')
+    .update({
+      name,
+      chain: data.chain?.trim() || null,
+      address: data.address?.trim() || null,
+      zip_code: data.zipCode?.trim() || null,
+      phone: data.phone?.trim() || null,
+      website_url: data.websiteUrl?.trim() || null,
+    })
+    .eq('id', storeId)
+    .select('id, name, chain, address, zip_code, lat, lng, phone, website_url')
+  if (updateError) return { error: updateError.message }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return { error: 'Store update did not affect any rows. This is usually an RLS/policy issue.' }
+  }
+
+  return { success: true, data: updatedRows[0] }
+}

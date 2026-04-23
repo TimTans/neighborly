@@ -13,6 +13,7 @@ import {
   addCatalogProduct,
   createAndAddProduct,
   deleteStoreProduct,
+  updateVendorStoreInfo,
 } from "./actions";
 
 /* ═══ INTERFACES ═══ */
@@ -269,6 +270,17 @@ const VendorDashboard: React.FC = () => {
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showStoreModal, setShowStoreModal] = useState(false);
+  const [storeForm, setStoreForm] = useState({
+    name: "",
+    chain: "",
+    address: "",
+    zip_code: "",
+    phone: "",
+    website_url: "",
+  });
+  const [storeFormError, setStoreFormError] = useState<string | null>(null);
+  const [savingStore, setSavingStore] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -302,6 +314,11 @@ const VendorDashboard: React.FC = () => {
   const [inventorySearch, setInventorySearch] = useState("");
 
   /* ── Data fetching ── */
+  const refreshStore = useCallback(async () => {
+    const res = await getVendorStore();
+    if (res.data) setStore(res.data as Store);
+  }, []);
+
   const refreshProducts = useCallback(async () => {
     const res = await getStoreProducts();
     if (res.data) setStoreProducts(transformProducts(res.data));
@@ -542,6 +559,62 @@ const VendorDashboard: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const openStoreInfoModal = () => {
+    setStoreForm({
+      name: store?.name || "",
+      chain: store?.chain || "",
+      address: store?.address || "",
+      zip_code: store?.zip_code || "",
+      phone: store?.phone || "",
+      website_url: store?.website_url || "",
+    });
+    setStoreFormError(null);
+    setSavingStore(false);
+    setShowStoreModal(true);
+  };
+
+  const closeStoreInfoModal = () => {
+    if (savingStore) return;
+    setShowStoreModal(false);
+    setStoreFormError(null);
+  };
+
+  const saveStoreInfo = async () => {
+    if (savingStore) return;
+
+    const name = storeForm.name.trim();
+    if (!name) {
+      setStoreFormError("Store name is required.");
+      return;
+    }
+
+    setSavingStore(true);
+    setStoreFormError(null);
+
+    const res = await updateVendorStoreInfo({
+      name,
+      chain: storeForm.chain || null,
+      address: storeForm.address || null,
+      zipCode: storeForm.zip_code || null,
+      phone: storeForm.phone || null,
+      websiteUrl: storeForm.website_url || null,
+    });
+
+    if (!("success" in res)) {
+      setStoreFormError(res.error ?? "Unable to update store info.");
+      setSavingStore(false);
+      return;
+    }
+
+    if (res.data) {
+      setStore(res.data as Store);
+    } else {
+      await refreshStore();
+    }
+    setSavingStore(false);
+    setShowStoreModal(false);
   };
 
   /* ── Modal helpers ── */
@@ -1331,7 +1404,10 @@ const VendorDashboard: React.FC = () => {
               </svg>
               Store Details
             </div>
-            <button className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors">
+            <button
+              onClick={openStoreInfoModal}
+              className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors"
+            >
               Edit Store Info
             </button>
           </div>
@@ -1432,9 +1508,130 @@ const VendorDashboard: React.FC = () => {
       </div>
       )}
 
-      {/* ═══════════════════════════════════════════ */}
+      {showStoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeStoreInfoModal}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-[620px] max-h-[85vh] overflow-hidden flex flex-col"
+            style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.15)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-7 pt-6 pb-4 border-b border-stone-100">
+              <div className="flex justify-between items-center">
+                <div className="fraunces text-xl font-semibold tracking-tight">Edit Store Info</div>
+                <button
+                  onClick={closeStoreInfoModal}
+                  disabled={savingStore}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors border-none bg-transparent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveStoreInfo();
+              }}
+              className="px-7 py-5 overflow-y-auto flex-1"
+            >
+              {storeFormError && (
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+                  {storeFormError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Store Name *</label>
+                  <input
+                    value={storeForm.name}
+                    onChange={(e) => setStoreForm((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder="Store name"
+                    className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Chain</label>
+                    <input
+                      value={storeForm.chain}
+                      onChange={(e) => setStoreForm((prev) => ({ ...prev, chain: e.target.value }))}
+                      placeholder="Optional"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Zip Code</label>
+                    <input
+                      value={storeForm.zip_code}
+                      onChange={(e) => setStoreForm((prev) => ({ ...prev, zip_code: e.target.value }))}
+                      placeholder="Optional"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Address</label>
+                  <input
+                    value={storeForm.address}
+                    onChange={(e) => setStoreForm((prev) => ({ ...prev, address: e.target.value }))}
+                    placeholder="Optional"
+                    className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Phone</label>
+                    <input
+                      value={storeForm.phone}
+                      onChange={(e) => setStoreForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      placeholder="Optional"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Website URL</label>
+                    <input
+                      value={storeForm.website_url}
+                      onChange={(e) => setStoreForm((prev) => ({ ...prev, website_url: e.target.value }))}
+                      placeholder="https://example.com"
+                      className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-stone-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeStoreInfoModal}
+                  disabled={savingStore}
+                  className="border border-stone-200 text-stone-500 bg-transparent px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer hover:bg-stone-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingStore}
+                  className="bg-green-800 text-white border-none px-5 py-2.5 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {savingStore ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ══ PRODUCT MODAL ══ */}
-      {/* ═══════════════════════════════════════════ */}
       {showProductModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeModal}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
