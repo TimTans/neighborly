@@ -1,10 +1,12 @@
 package com.example.android.ui.route
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,153 +17,439 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.android.viewmodel.home.HomeViewModel
-import com.example.android.viewmodel.home.RouteStop
+import com.example.android.data.repository.route.RouteSwapOption
+import com.example.android.viewmodel.route.OptimizedRouteStop
+import com.example.android.viewmodel.route.RouteMissingItem
+import com.example.android.viewmodel.route.RoutePlan
+import com.example.android.viewmodel.route.RouteStopItem
+import com.example.android.viewmodel.route.RouteViewModel
 
 private val NeighborlyBackground = Color(0xFFF7F3EC)
 private val NeighborlyGreen = Color(0xFF0C6A4A)
 private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
 private val NeighborlyOrange = Color(0xFFE67E22)
-private val NeighborlyOrangeSoft = Color(0xFFFFF3E0)
+private val NeighborlyInk = Color(0xFF1A1A1A)
 
 @Composable
 fun RouteScreen(
-    homeViewModel: HomeViewModel,
+    routeViewModel: RouteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val state = homeViewModel.uiState
+    val state = routeViewModel.uiState
 
     Surface(modifier = modifier.fillMaxSize(), color = NeighborlyBackground) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "Route",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF1A1A1A),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-
-            Box(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(NeighborlyGreenSoft.copy(alpha = 0.7f), NeighborlyGreenSoft)
-                        )
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Filled.Map, contentDescription = null, tint = NeighborlyGreen, modifier = Modifier.size(36.dp))
-                    Text("Google Maps integration", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF4F7E6B))
+                Text(
+                    text = "Optimized Route",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = NeighborlyInk,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+
+                when {
+                    state.isLoading -> RouteLoadingCard()
+                    state.optimizedRoute == null -> EmptyRouteCard(
+                        message = state.errorMessage,
+                        hasPendingProducts = state.pendingProductIds.isNotEmpty(),
+                        onRetry = routeViewModel::optimizePendingRoute
+                    )
+                    else -> RouteContent(
+                        route = state.optimizedRoute,
+                        errorMessage = state.errorMessage,
+                        onRetry = routeViewModel::optimizePendingRoute,
+                        onSwapItem = routeViewModel::loadSwapAlternatives
+                    )
                 }
             }
 
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = NeighborlyGreenSoft),
-                modifier = Modifier.fillMaxWidth()
+            if (
+                state.selectedSwapProductId != null ||
+                state.isLoadingSwapOptions ||
+                state.swapErrorMessage != null
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "OPTIMIZED ROUTE",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF5A5A5A)
-                        )
-                        Text(state.optimizedStopsLabel, style = MaterialTheme.typography.bodySmall, color = NeighborlyGreen)
-                    }
+                SwapAlternativesDialog(
+                    isLoading = state.isLoadingSwapOptions,
+                    options = state.swapOptions,
+                    errorMessage = state.swapErrorMessage,
+                    onDismiss = routeViewModel::dismissSwapAlternatives
+                )
+            }
+        }
+    }
+}
 
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(state.routeStops) { stop ->
-                            RouteStopCard(stop = stop)
+@Composable
+private fun RouteContent(
+    route: RoutePlan,
+    errorMessage: String?,
+    onRetry: () -> Unit,
+    onSwapItem: (String?) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            RouteSummaryCard(route = route, errorMessage = errorMessage, onRetry = onRetry)
+        }
+
+        item {
+            RouteMapPlaceholder(stops = route.stops)
+        }
+
+        items(route.stops, key = { stop -> "${stop.index}-${stop.storeId}-${stop.storeName}" }) { stop ->
+            RouteStopCard(stop = stop, onSwapItem = onSwapItem)
+        }
+
+        if (route.missingItems.isNotEmpty()) {
+            item {
+                MissingItemsCard(items = route.missingItems)
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun RouteSummaryCard(route: RoutePlan, errorMessage: String?, onRetry: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Total trip cost", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF5F6F67))
+                    Text(
+                        text = route.totalCost.formatMoneyOrDash(),
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        color = NeighborlyGreen
+                    )
+                }
+                OutlinedButton(onClick = onRetry, enabled = route.stops.isNotEmpty()) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Refresh")
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                SummaryPill(text = route.stopCountLabel)
+                SummaryPill(text = route.itemCountLabel)
+                route.estimatedDurationMinutes?.let { SummaryPill(text = "$it min") }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                route.totalDistanceMiles?.let { SummaryPill(text = "${"%.1f".format(it)} mi") }
+                route.savings?.let { SummaryPill(text = "${it.formatMoneyOrDash()} saved") }
+            }
+
+            if (errorMessage != null) {
+                Text(errorMessage, style = MaterialTheme.typography.bodySmall, color = NeighborlyOrange)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryPill(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(NeighborlyGreenSoft)
+            .padding(horizontal = 12.dp, vertical = 7.dp)
+    ) {
+        Text(text = text, style = MaterialTheme.typography.bodySmall, color = NeighborlyGreen)
+    }
+}
+
+@Composable
+private fun RouteMapPlaceholder(stops: List<OptimizedRouteStop>) {
+    val stopsWithCoordinates = stops.filter { it.latitude != null && it.longitude != null }
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFECF5EF)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Map, contentDescription = null, tint = NeighborlyGreen)
+                Text(
+                    "Map preview",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeighborlyInk
+                )
+            }
+            Text(
+                text = if (stopsWithCoordinates.isEmpty()) {
+                    "Route data is ready for map rendering once stop coordinates arrive from the API."
+                } else {
+                    "Showing ${stopsWithCoordinates.size} coordinate-backed stop pins. SDK polyline rendering can replace this bounded placeholder."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF4F7E6B)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                stopsWithCoordinates.forEach { stop ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        StopNumber(index = stop.index)
+                        Text(
+                            text = "${stop.storeName}: ${"%.4f".format(stop.latitude)}, ${"%.4f".format(stop.longitude)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeighborlyInk
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Unit) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                StopNumber(index = stop.index)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stop.storeName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    stop.address?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                    }
+                    Text(
+                        text = listOfNotNull(
+                            stop.distanceMiles?.let { "${"%.1f".format(it)} mi" },
+                            stop.estimatedDurationMinutes?.let { "$it min" }
+                        ).joinToString(" • ").ifBlank { "${stop.items.size} route items" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeighborlyGreen
+                    )
+                }
+                Text(
+                    text = stop.subtotal.formatMoneyOrDash(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeighborlyGreen
+                )
+            }
+
+            Divider(color = Color(0xFFE9E2D8))
+
+            stop.items.forEach { item ->
+                RouteItemRow(item = item, onSwapItem = onSwapItem)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = item.swapAvailable || item.productId != null) { onSwapItem(item.productId) }
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = NeighborlyGreen, modifier = Modifier.size(18.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(item.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+            Text(
+                text = listOfNotNull("Qty ${item.quantity}", item.unitSize).joinToString(" • "),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF777777)
+            )
+            if (item.swapAvailable) {
+                Text("Swap available", style = MaterialTheme.typography.bodySmall, color = NeighborlyOrange)
+            }
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            item.originalPrice?.takeIf { original -> item.price != null && original > item.price }?.let {
+                Text(it.formatMoneyOrDash(), style = MaterialTheme.typography.bodySmall, color = Color(0xFF999999))
+            }
+            Text(item.price.formatMoneyOrDash(), style = MaterialTheme.typography.bodyLarge, color = NeighborlyGreen)
+        }
+    }
+}
+
+@Composable
+private fun MissingItemsCard(items: List<RouteMissingItem>) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Items not found",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = NeighborlyInk
+            )
+            items.forEach { item ->
+                Text(
+                    text = "${item.name}${item.reason?.let { ": $it" } ?: ""}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF777777)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyRouteCard(message: String?, hasPendingProducts: Boolean, onRetry: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(Icons.Outlined.Map, contentDescription = null, tint = NeighborlyGreen, modifier = Modifier.size(48.dp))
+            Text(
+                "No optimized route yet",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = NeighborlyInk,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message ?: "Create a route from grocery-list product IDs once Worker B's persisted list is wired.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF4F7E6B),
+                textAlign = TextAlign.Center
+            )
+            Button(
+                onClick = onRetry,
+                enabled = hasPendingProducts,
+                colors = ButtonDefaults.buttonColors(containerColor = NeighborlyGreen)
+            ) {
+                Text("Optimize pending route")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteLoadingCard() {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            CircularProgressIndicator(color = NeighborlyGreen, modifier = Modifier.size(28.dp))
+            Text("Optimizing your route...", style = MaterialTheme.typography.bodyLarge, color = NeighborlyInk)
+        }
+    }
+}
+
+@Composable
+private fun StopNumber(index: Int) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(NeighborlyGreen),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(index.toString(), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
+    }
+}
+
+@Composable
+private fun SwapAlternativesDialog(
+    isLoading: Boolean,
+    options: List<RouteSwapOption>,
+    errorMessage: String?,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.material.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Swap alternatives") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    isLoading -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(color = NeighborlyGreen, modifier = Modifier.size(22.dp))
+                        Text("Loading alternatives...")
+                    }
+                    errorMessage != null -> Text(errorMessage, color = NeighborlyOrange)
+                    options.isEmpty() -> Text("No alternatives returned for this product yet.")
+                    else -> options.forEach { option ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(option.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                listOfNotNull(option.storeName, option.price.formatMoneyOrDash(), option.reason).joinToString(" • "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF777777)
+                            )
                         }
                     }
                 }
             }
-
-            Button(
-                onClick = {},
-                colors = ButtonDefaults.buttonColors(containerColor = NeighborlyGreen),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Optimize Route")
-            }
+        },
+        confirmButton = {
+            Text(
+                text = "Close",
+                modifier = Modifier
+                    .clickable(onClick = onDismiss)
+                    .padding(12.dp),
+                color = NeighborlyGreen
+            )
         }
-    }
+    )
 }
 
-@Composable
-private fun RouteStopCard(stop: RouteStop) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(NeighborlyGreen),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(stop.index.toString(), style = MaterialTheme.typography.labelSmall, color = Color.White)
-        }
-
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(stop.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
-            Text(stop.address, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RouteBadge(stop.itemsLabel, NeighborlyGreen, NeighborlyGreenSoft)
-                RouteBadge(stop.timeEstimate, NeighborlyOrange, NeighborlyOrangeSoft)
-            }
-        }
-
-        Text(stop.distance, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
-    }
-}
-
-@Composable
-private fun RouteBadge(label: String, textColor: Color, background: Color) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(background)
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = textColor)
-    }
-}
+private fun Double?.formatMoneyOrDash(): String = this?.let { "$${"%.2f".format(it)}" } ?: "--"

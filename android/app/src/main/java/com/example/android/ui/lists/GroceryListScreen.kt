@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -77,19 +78,72 @@ fun GroceryListScreen(
                 singleLine = true
             )
 
-            if (state.filteredCatalog.isNotEmpty()) {
+            if (state.isSearchLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = NeighborlyGreen
+                    )
+                    Text("Searching products...", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4F7E6B))
+                }
+            }
+
+            state.searchError?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
+            if (
+                state.searchQuery.trim().length >= 2 &&
+                !state.isSearchLoading &&
+                state.searchError == null &&
+                state.searchResults.isEmpty()
+            ) {
+                Text(
+                    text = "No products found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF777777),
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
+            if (state.searchResults.isNotEmpty()) {
                 Card(
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Column {
-                        state.filteredCatalog.forEach { product ->
+                        state.searchResults.forEach { product ->
                             SearchResultRow(product = product) {
                                 shopperViewModel.addProduct(product)
                             }
                         }
                     }
                 }
+            }
+
+            if (state.isRefreshingPrices || state.refreshError != null) {
+                Text(
+                    text = if (state.isRefreshingPrices) {
+                        "Refreshing saved prices..."
+                    } else {
+                        state.refreshError.orEmpty()
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.refreshError == null) Color(0xFF4F7E6B) else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
             }
 
             if (state.groceryList.isEmpty()) {
@@ -162,6 +216,18 @@ fun GroceryListScreen(
                             .padding(12.dp),
                         color = NeighborlyGreen
                     )
+                },
+                dismissButton = {
+                    Text(
+                        text = "Delete",
+                        modifier = Modifier
+                            .clickable {
+                                shopperViewModel.deleteItem(item.id)
+                                selectedItem = null
+                            }
+                            .padding(12.dp),
+                        color = NeighborlyOrange
+                    )
                 }
             )
         }
@@ -181,11 +247,15 @@ private fun SearchResultRow(product: CatalogProduct, onAdd: () -> Unit) {
         Icon(Icons.Filled.AddCircle, contentDescription = null, tint = NeighborlyGreen)
         Column(modifier = Modifier.weight(1f)) {
             Text(product.name, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF1A1A1A))
-            Text(product.unitSize, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+            Text(
+                text = listOfNotNull(product.brand, product.unitSize.takeIf { it.isNotBlank() }).joinToString(" / "),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF777777)
+            )
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text("$${"%.2f".format(product.price)}", style = MaterialTheme.typography.bodyLarge, color = NeighborlyGreen)
-            Text(product.store, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+            Text(product.price.formatPrice(), style = MaterialTheme.typography.bodyLarge, color = NeighborlyGreen)
+            Text(product.store ?: "Store pending", style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
         }
     }
 }
@@ -237,4 +307,8 @@ private fun GroceryItemCard(
             }
         }
     }
+}
+
+private fun Double?.formatPrice(): String {
+    return this?.let { "$${"%.2f".format(it)}" } ?: "Price pending"
 }

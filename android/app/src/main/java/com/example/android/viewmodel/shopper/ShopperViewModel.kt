@@ -1,225 +1,304 @@
 package com.example.android.viewmodel.shopper
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import java.util.UUID
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.android.data.local.GroceryListItemRecord
+import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
+import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
+import com.example.android.data.repository.GroceryListRepository
+import com.example.android.data.repository.GroceryProductSummary
+import com.example.android.data.repository.preferences.OptimizationPriority
+import com.example.android.data.repository.preferences.PreferenceRepository
+import com.example.android.data.repository.preferences.PreferenceState
+import com.example.android.data.repository.preferences.TransportMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class CatalogProduct(
-    val id: String = UUID.randomUUID().toString(),
+    val productId: String?,
+    val upc: String,
     val name: String,
+    val brand: String?,
     val unitSize: String,
-    val price: Double,
-    val store: String,
-    val upc: String
+    val price: Double?,
+    val store: String?,
+    val categoryEmoji: String = "\uD83D\uDED2",
+    val imageUrl: String? = null
 )
 
 data class GroceryListItemUi(
-    val id: String = UUID.randomUUID().toString(),
+    val id: String,
+    val productId: String?,
     val upc: String,
     val name: String,
     val unitSize: String,
     val store: String,
     val price: Double,
-    val quantity: Int = 1
-)
-
-enum class OptimizationPriority(val label: String) {
-    LowestCost("Lowest Cost"),
-    ShortestRoute("Shortest Route"),
-    FastestTrip("Fastest Trip")
-}
-
-enum class TransportMode(val label: String) {
-    Walking("Walking"),
-    PublicTransit("Public Transit"),
-    Car("Driving");
-
-    val emoji: String
-        get() = when (this) {
-            Walking -> "\uD83D\uDEB6"
-            PublicTransit -> "\uD83D\uDE8C"
-            Car -> "\uD83D\uDE97"
-        }
-}
-
-data class PreferenceState(
-    val priority: OptimizationPriority = OptimizationPriority.LowestCost,
-    val enabledModes: Set<TransportMode> = setOf(
-        TransportMode.Walking,
-        TransportMode.PublicTransit,
-        TransportMode.Car
-    ),
-    val maxTravelDistanceMiles: Float = 5f,
-    val maxStops: Float = 5f,
-    val wellnessEnabled: Boolean = true,
-    val cholesterolLimit: String = "",
-    val sodiumLimit: String = "",
-    val sugarLimit: String = "",
-    val dietVegan: Boolean = false,
-    val dietGlutenFree: Boolean = true,
-    val dietLowCarb: Boolean = false,
-    val dietKosher: Boolean = false,
-    val dietHalal: Boolean = false,
-    val dietKeto: Boolean = false,
-    val avoidDairy: Boolean = false,
-    val avoidPeanuts: Boolean = true,
-    val avoidShellfish: Boolean = false,
-    val avoidWheat: Boolean = false
+    val quantity: Int = 1,
+    val dateAddedMillis: Long
 )
 
 data class ShopperUiState(
-    val catalog: List<CatalogProduct> = sampleCatalog,
     val groceryList: List<GroceryListItemUi> = emptyList(),
     val searchQuery: String = "",
+    val searchResults: List<CatalogProduct> = emptyList(),
+    val isSearchLoading: Boolean = false,
+    val searchError: String? = null,
+    val isRefreshingPrices: Boolean = false,
+    val refreshError: String? = null,
     val preferences: PreferenceState = PreferenceState()
 ) {
     val filteredCatalog: List<CatalogProduct>
-        get() {
-            val query = searchQuery.trim().lowercase()
-            if (query.isBlank()) return emptyList()
-            return catalog.filter { it.name.lowercase().contains(query) }.take(10)
-        }
+        get() = searchResults
 }
 
-class ShopperViewModel : ViewModel() {
+class ShopperViewModel @JvmOverloads constructor(
+    application: Application,
+    private val groceryListRepository: GroceryListRepository = GroceryListRepository(
+        SharedPreferencesGroceryListLocalDataSource(application.applicationContext)
+    ),
+    private val preferenceRepository: PreferenceRepository = SharedPreferencesPreferenceRepository(
+        application.applicationContext
+    )
+) : AndroidViewModel(application) {
     var uiState by mutableStateOf(ShopperUiState())
         private set
 
+    private var searchJob: Job? = null
+
+    init {
+        uiState = uiState.copy(groceryList = groceryListRepository.loadItems().toUiItems())
+        viewModelScope.launch {
+            val persistedPreferences = withContext(Dispatchers.IO) {
+                preferenceRepository.loadPreferences()
+            }
+            uiState = uiState.copy(preferences = persistedPreferences)
+        }
+        refreshPrices()
+    }
+
     fun updateSearchQuery(value: String) {
-        uiState = uiState.copy(searchQuery = value)
+        searchJob?.cancel()
+        uiState = uiState.copy(searchQuery = value, searchError = null)
+
+        val query = value.trim()
+        if (query.length < MIN_SEARCH_QUERY_LENGTH) {
+            uiState = uiState.copy(searchResults = emptyList(), isSearchLoading = false)
+            return
+        }
+
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MILLIS)
+            uiState = uiState.copy(isSearchLoading = true, searchError = null)
+            groceryListRepository.searchProducts(query)
+                .onSuccess { products ->
+                    if (uiState.searchQuery.trim() == query) {
+                        uiState = uiState.copy(
+                            searchResults = products.map { it.toCatalogProduct() },
+                            isSearchLoading = false
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (uiState.searchQuery.trim() == query) {
+                        uiState = uiState.copy(
+                            searchResults = emptyList(),
+                            isSearchLoading = false,
+                            searchError = error.message ?: "Unable to search products."
+                        )
+                    }
+                }
+        }
     }
 
     fun clearSearch() {
-        uiState = uiState.copy(searchQuery = "")
+        searchJob?.cancel()
+        uiState = uiState.copy(
+            searchQuery = "",
+            searchResults = emptyList(),
+            isSearchLoading = false,
+            searchError = null
+        )
     }
 
     fun addProduct(product: CatalogProduct) {
-        val existing = uiState.groceryList.firstOrNull { it.upc == product.upc }
+        val updatedItems = groceryListRepository.addOrIncrement(product.toProductSummary())
         uiState = uiState.copy(
-            groceryList = if (existing == null) {
-                uiState.groceryList + GroceryListItemUi(
-                    upc = product.upc,
-                    name = product.name,
-                    unitSize = product.unitSize,
-                    store = product.store,
-                    price = product.price
-                )
-            } else {
-                uiState.groceryList.map {
-                    if (it.upc == product.upc) it.copy(quantity = it.quantity + 1) else it
-                }
-            },
-            searchQuery = ""
+            groceryList = updatedItems.toUiItems(),
+            searchQuery = "",
+            searchResults = emptyList(),
+            isSearchLoading = false,
+            searchError = null
         )
     }
 
     fun incrementItem(id: String) {
-        uiState = uiState.copy(
-            groceryList = uiState.groceryList.map {
-                if (it.id == id) it.copy(quantity = it.quantity + 1) else it
-            }
-        )
+        uiState = uiState.copy(groceryList = groceryListRepository.incrementItem(id).toUiItems())
     }
 
     fun decrementItem(id: String) {
-        uiState = uiState.copy(
-            groceryList = uiState.groceryList.mapNotNull {
-                when {
-                    it.id != id -> it
-                    it.quantity > 1 -> it.copy(quantity = it.quantity - 1)
-                    else -> null
+        uiState = uiState.copy(groceryList = groceryListRepository.decrementItem(id).toUiItems())
+    }
+
+    fun deleteItem(id: String) {
+        uiState = uiState.copy(groceryList = groceryListRepository.deleteItem(id).toUiItems())
+    }
+
+    fun refreshPrices() {
+        viewModelScope.launch {
+            uiState = uiState.copy(isRefreshingPrices = true, refreshError = null)
+            groceryListRepository.refreshPrices()
+                .onSuccess { items ->
+                    uiState = uiState.copy(
+                        groceryList = items.toUiItems(),
+                        isRefreshingPrices = false
+                    )
                 }
-            }
-        )
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        isRefreshingPrices = false,
+                        refreshError = error.message ?: "Unable to refresh prices."
+                    )
+                }
+        }
     }
 
     fun updatePriority(priority: OptimizationPriority) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(priority = priority))
+        updatePreferences { it.copy(priority = priority) }
     }
 
     fun toggleTransportMode(mode: TransportMode) {
         val updatedModes = uiState.preferences.enabledModes.toMutableSet().apply {
             if (contains(mode)) remove(mode) else add(mode)
         }
-        uiState = uiState.copy(preferences = uiState.preferences.copy(enabledModes = updatedModes))
+        updatePreferences { it.copy(enabledModes = updatedModes) }
     }
 
     fun updateMaxTravelDistance(value: Float) {
-        uiState = uiState.copy(
-            preferences = uiState.preferences.copy(maxTravelDistanceMiles = value)
-        )
+        updatePreferences { it.copy(maxTravelDistanceMiles = value) }
     }
 
     fun updateMaxStops(value: Float) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(maxStops = value))
+        updatePreferences { it.copy(maxStops = value) }
     }
 
     fun updateWellnessEnabled(enabled: Boolean) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(wellnessEnabled = enabled))
+        updatePreferences { it.copy(wellnessEnabled = enabled) }
     }
 
     fun updateSodiumLimit(value: String) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(sodiumLimit = value))
+        updatePreferences { it.copy(sodiumLimit = value) }
     }
 
     fun updateCholesterolLimit(value: String) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(cholesterolLimit = value))
+        updatePreferences { it.copy(cholesterolLimit = value) }
     }
 
     fun updateSugarLimit(value: String) {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(sugarLimit = value))
+        updatePreferences { it.copy(sugarLimit = value) }
     }
 
     fun toggleDietVegan() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietVegan = !uiState.preferences.dietVegan))
+        updatePreferences { it.copy(dietVegan = !it.dietVegan) }
     }
 
     fun toggleDietGlutenFree() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietGlutenFree = !uiState.preferences.dietGlutenFree))
+        updatePreferences { it.copy(dietGlutenFree = !it.dietGlutenFree) }
     }
 
     fun toggleDietLowCarb() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietLowCarb = !uiState.preferences.dietLowCarb))
+        updatePreferences { it.copy(dietLowCarb = !it.dietLowCarb) }
     }
 
     fun toggleDietKosher() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietKosher = !uiState.preferences.dietKosher))
+        updatePreferences { it.copy(dietKosher = !it.dietKosher) }
     }
 
     fun toggleDietHalal() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietHalal = !uiState.preferences.dietHalal))
+        updatePreferences { it.copy(dietHalal = !it.dietHalal) }
     }
 
     fun toggleDietKeto() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(dietKeto = !uiState.preferences.dietKeto))
+        updatePreferences { it.copy(dietKeto = !it.dietKeto) }
     }
 
     fun toggleAvoidDairy() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(avoidDairy = !uiState.preferences.avoidDairy))
+        updatePreferences { it.copy(avoidDairy = !it.avoidDairy) }
     }
 
     fun toggleAvoidPeanuts() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(avoidPeanuts = !uiState.preferences.avoidPeanuts))
+        updatePreferences { it.copy(avoidPeanuts = !it.avoidPeanuts) }
     }
 
     fun toggleAvoidShellfish() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(avoidShellfish = !uiState.preferences.avoidShellfish))
+        updatePreferences { it.copy(avoidShellfish = !it.avoidShellfish) }
     }
 
     fun toggleAvoidWheat() {
-        uiState = uiState.copy(preferences = uiState.preferences.copy(avoidWheat = !uiState.preferences.avoidWheat))
+        updatePreferences { it.copy(avoidWheat = !it.avoidWheat) }
+    }
+
+    private fun updatePreferences(transform: (PreferenceState) -> PreferenceState) {
+        val updatedPreferences = transform(uiState.preferences)
+        uiState = uiState.copy(preferences = updatedPreferences)
+        viewModelScope.launch(Dispatchers.IO) {
+            preferenceRepository.savePreferences(updatedPreferences)
+        }
+    }
+
+    private fun List<GroceryListItemRecord>.toUiItems(): List<GroceryListItemUi> {
+        return map { item ->
+            GroceryListItemUi(
+                id = item.id,
+                productId = item.productId,
+                upc = item.upc,
+                name = item.name,
+                unitSize = item.unitSize,
+                store = item.store,
+                price = item.price,
+                quantity = item.quantity,
+                dateAddedMillis = item.dateAddedMillis
+            )
+        }
+    }
+
+    private fun GroceryProductSummary.toCatalogProduct(): CatalogProduct {
+        return CatalogProduct(
+            productId = productId,
+            upc = upc,
+            name = name,
+            brand = brand,
+            unitSize = unitSize,
+            price = bestPrice,
+            store = bestStoreName,
+            categoryEmoji = categoryEmoji,
+            imageUrl = imageUrl
+        )
+    }
+
+    private fun CatalogProduct.toProductSummary(): GroceryProductSummary {
+        return GroceryProductSummary(
+            productId = productId,
+            upc = upc,
+            name = name,
+            brand = brand,
+            unitSize = unitSize,
+            bestPrice = price,
+            bestStoreName = store,
+            categoryEmoji = categoryEmoji,
+            imageUrl = imageUrl
+        )
+    }
+
+    private companion object {
+        const val MIN_SEARCH_QUERY_LENGTH = 2
+        const val SEARCH_DEBOUNCE_MILLIS = 300L
     }
 }
-
-private val sampleCatalog = listOf(
-    CatalogProduct(name = "Organic Bananas", unitSize = "1 bunch", price = 1.29, store = "Trader Joe's", upc = "0001"),
-    CatalogProduct(name = "Whole Milk 1 Gal", unitSize = "1 gal", price = 3.49, store = "Aldi", upc = "0002"),
-    CatalogProduct(name = "Chicken Breast", unitSize = "2 lbs", price = 5.99, store = "Costco", upc = "0003"),
-    CatalogProduct(name = "Sourdough Bread", unitSize = "1 loaf", price = 3.99, store = "Trader Joe's", upc = "0004"),
-    CatalogProduct(name = "Baby Spinach", unitSize = "5 oz", price = 2.49, store = "Aldi", upc = "0005"),
-    CatalogProduct(name = "Greek Yogurt", unitSize = "32 oz", price = 4.29, store = "Walmart", upc = "0006"),
-    CatalogProduct(name = "Avocados (4 pk)", unitSize = "1 pack", price = 2.99, store = "Aldi", upc = "0007"),
-    CatalogProduct(name = "Olive Oil", unitSize = "500 ml", price = 5.49, store = "Trader Joe's", upc = "0008")
-)

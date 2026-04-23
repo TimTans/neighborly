@@ -21,6 +21,7 @@ android {
         val envFile = rootProject.file(".env")
         var supabaseUrl = "https://placeholder.supabase.co"
         var supabaseAnonKey = ""
+        var apiBaseUrl = ""
         if (envFile.exists()) {
             envFile.readLines()
                 .filter { it.contains("=") && !it.trim().startsWith("#") }
@@ -30,12 +31,14 @@ android {
                         when (parts[0].trim()) {
                             "SUPABASE_URL" -> supabaseUrl = parts[1].trim().removeSurrounding("\"")
                             "SUPABASE_ANON_KEY" -> supabaseAnonKey = parts[1].trim().removeSurrounding("\"")
+                            "API_BASE_URL" -> apiBaseUrl = parts[1].trim().removeSurrounding("\"")
                         }
                     }
                 }
         }
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.replace("\"", "\\\"")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\"", "\\\"")}\"")
     }
 
     buildTypes {
@@ -87,7 +90,11 @@ dependencies {
     // Supabase
     implementation(platform("io.github.jan-tennert.supabase:bom:2.0.2"))
     implementation("io.github.jan-tennert.supabase:gotrue-kt")
-    implementation("io.ktor:ktor-client-android:2.3.7")
+    implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.logging)
+    implementation(libs.ktor.client.serialization.json)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
