@@ -1,13 +1,28 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import VendorMap from "@/components/VendorMap";
+import ProfileDropdown from "@/components/ProfileDropdown";
+import {
+  getVendorStore,
+  getStoreProducts,
+  getStoreReviews,
+  getProductPriceHistory,
+  searchCatalog,
+  updateProductPrice,
+  toggleProductStock,
+  addCatalogProduct,
+  createAndAddProduct,
+} from "./actions";
+
+/* ═══ INTERFACES ═══ */
 
 interface StoreProduct {
   id: string;
+  product_id: string;
   name: string;
   brand: string | null;
   category: string;
-  unit_type: string;
+  unit_size: string;
   price: number;
   sale_price: number | null;
   in_stock: boolean;
@@ -18,10 +33,11 @@ interface StoreProduct {
 interface PriceHistoryEntry {
   price: number;
   sale_price: number | null;
-  recorded_at: string;
+  created_at: string;
 }
 
 interface StoreReview {
+  id: string;
   rating: number;
   comment: string | null;
   user_name: string;
@@ -29,58 +45,24 @@ interface StoreReview {
 }
 
 interface Store {
+  id: string;
   name: string;
-  address: string;
+  chain: string | null;
+  address: string | null;
+  zip_code: string | null;
+  lat: number | null;
+  lng: number | null;
   phone: string | null;
   website_url: string | null;
-  zip_code: string | null;
 }
 
-/* ═══ DATA ═══ */
-
-const INITIAL_PRODUCTS: StoreProduct[] = [
-  { id: "sp1", name: "Organic Bananas", brand: "Trader Joe's", category: "Produce", unit_type: "bunch", price: 1.29, sale_price: null, in_stock: true, data_source: "vendor", updated_at: "2026-02-24T10:30:00" },
-  { id: "sp2", name: "Whole Milk 1 Gal", brand: "Trader Joe's", category: "Dairy", unit_type: "gal", price: 4.69, sale_price: null, in_stock: true, data_source: "vendor", updated_at: "2026-02-24T11:00:00" },
-  { id: "sp3", name: "Chicken Breast", brand: null, category: "Meat", unit_type: "lb", price: 8.49, sale_price: 6.99, in_stock: true, data_source: "vendor", updated_at: "2026-02-24T08:15:00" },
-  { id: "sp4", name: "Sourdough Bread", brand: "Trader Joe's", category: "Bakery", unit_type: "loaf", price: 4.49, sale_price: null, in_stock: true, data_source: "vendor", updated_at: "2026-02-24T11:45:00" },
-  { id: "sp5", name: "Baby Spinach 5oz", brand: "Trader Joe's", category: "Produce", unit_type: "bag", price: 3.49, sale_price: 2.99, in_stock: true, data_source: "api", updated_at: "2026-02-24T09:20:00" },
-  { id: "sp6", name: "Greek Yogurt 32oz", brand: "Fage", category: "Dairy", unit_type: "tub", price: 5.09, sale_price: null, in_stock: false, data_source: "vendor", updated_at: "2026-02-24T06:00:00" },
-  { id: "sp7", name: "Olive Oil 500ml", brand: "Trader Joe's", category: "Pantry", unit_type: "bottle", price: 7.99, sale_price: 5.49, in_stock: true, data_source: "vendor", updated_at: "2026-02-24T11:00:00" },
-  { id: "sp8", name: "Avocados (4 pk)", brand: null, category: "Produce", unit_type: "pack", price: 4.49, sale_price: 2.99, in_stock: true, data_source: "community", updated_at: "2026-02-23T17:30:00" },
-];
-
-const PRICE_HISTORY: Record<string, PriceHistoryEntry[]> = {
-  sp3: [
-    { price: 8.49, sale_price: null, recorded_at: "2026-02-01" },
-    { price: 8.49, sale_price: 7.49, recorded_at: "2026-02-10" },
-    { price: 8.49, sale_price: 6.99, recorded_at: "2026-02-20" },
-  ],
-  sp7: [
-    { price: 8.99, sale_price: null, recorded_at: "2026-01-15" },
-    { price: 7.99, sale_price: null, recorded_at: "2026-02-01" },
-    { price: 7.99, sale_price: 5.49, recorded_at: "2026-02-22" },
-  ],
-  sp1: [
-    { price: 1.49, sale_price: null, recorded_at: "2026-02-01" },
-    { price: 1.29, sale_price: null, recorded_at: "2026-02-15" },
-  ],
-};
-
-const REVIEWS: StoreReview[] = [
-  { rating: 5, comment: "Great prices on produce, always fresh.", user_name: "Maria S.", created_at: "2026-02-22" },
-  { rating: 4, comment: "Love the store brand items. Wish they had more organic options.", user_name: "James L.", created_at: "2026-02-20" },
-  { rating: 5, comment: "Best prices in the neighborhood for everyday staples.", user_name: "Priya K.", created_at: "2026-02-18" },
-  { rating: 3, comment: "Sometimes out of stock on popular items.", user_name: "David R.", created_at: "2026-02-15" },
-  { rating: 5, comment: null, user_name: "Aisha M.", created_at: "2026-02-12" },
-];
-
-const STORE: Store = {
-  name: "Trader Joe's",
-  address: "130 Court St, Brooklyn, NY 11201",
-  phone: "(718) 246-8460",
-  website_url: "traderjoes.com",
-  zip_code: "11201",
-};
+interface CatalogProduct {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: string;
+  unit_size: string;
+}
 
 /* ═══ HELPERS ═══ */
 
@@ -96,7 +78,7 @@ const SRC_LABELS: Record<string, string> = {
   vendor: "Vendor",
   api: "API",
   community: "Community",
-  scrape: "Scraped",
+  scraper: "Scraped",
 };
 
 const catColor = (c: string): string => CAT_COLORS[c] || "#8B8680";
@@ -111,7 +93,7 @@ const srcPillClass = (s: string): string => {
 
 const fmtTime = (iso: string): string => {
   const d = new Date(iso);
-  const now = new Date("2026-02-24T12:00:00");
+  const now = new Date();
   const m = Math.floor((now.getTime() - d.getTime()) / 60000);
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
@@ -124,35 +106,55 @@ const fmtDate = (iso: string): string =>
 
 const starsStr = (n: number): string => "★".repeat(n) + "☆".repeat(5 - n);
 
-/* ═══ CATALOG (for product search) ═══ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const transformProducts = (raw: any[]): StoreProduct[] =>
+  raw.map((sp) => ({
+    id: sp.id,
+    product_id: sp.products?.id || "",
+    name: sp.products?.name || "Unknown",
+    brand: sp.products?.brand || null,
+    category: sp.products?.product_categories?.name || "Other",
+    unit_size: sp.products?.unit_size || "",
+    price: sp.price,
+    sale_price: sp.sale_price,
+    in_stock: sp.in_stock,
+    data_source: sp.data_source,
+    updated_at: sp.updated_at,
+  }));
 
-interface CatalogProduct {
-  id: string;
-  name: string;
-  brand: string | null;
-  category: string;
-  unit_type: string;
-  avg_price: number;
-}
+const transformReviews = (raw: any[]): StoreReview[] =>
+  raw.map((r) => ({
+    id: r.id,
+    rating: r.rating,
+    comment: r.comment,
+    user_name: r.users
+      ? `${r.users.first_name || ""} ${r.users.last_name?.charAt(0) || ""}.`.trim()
+      : "Anonymous",
+    created_at: r.created_at,
+  }));
 
-const CATALOG: CatalogProduct[] = [
-  { id: "cat1", name: "Organic Bananas", brand: "Dole", category: "Produce", unit_type: "bunch", avg_price: 1.39 },
-  { id: "cat2", name: "Whole Milk 1 Gal", brand: "Horizon", category: "Dairy", unit_type: "gal", avg_price: 5.29 },
-  { id: "cat3", name: "Almond Milk 64oz", brand: "Califia Farms", category: "Dairy", unit_type: "carton", avg_price: 4.99 },
-  { id: "cat4", name: "Free Range Eggs 12ct", brand: "Vital Farms", category: "Dairy", unit_type: "dozen", avg_price: 6.49 },
-  { id: "cat5", name: "Atlantic Salmon Fillet", brand: null, category: "Meat", unit_type: "lb", avg_price: 12.99 },
-  { id: "cat6", name: "Sourdough Bread", brand: "Acme", category: "Bakery", unit_type: "loaf", avg_price: 5.49 },
-  { id: "cat7", name: "Avocados (4 pk)", brand: null, category: "Produce", unit_type: "pack", avg_price: 4.99 },
-  { id: "cat8", name: "Organic Strawberries 1lb", brand: "Driscoll's", category: "Produce", unit_type: "lb", avg_price: 5.99 },
-  { id: "cat9", name: "Peanut Butter 16oz", brand: "Jif", category: "Pantry", unit_type: "jar", avg_price: 3.79 },
-  { id: "cat10", name: "Pasta Sauce 24oz", brand: "Rao's", category: "Pantry", unit_type: "jar", avg_price: 8.49 },
-];
+const transformCatalog = (raw: any[]): CatalogProduct[] =>
+  raw.map((p) => ({
+    id: p.id,
+    name: p.name,
+    brand: p.brand,
+    category: p.product_categories?.name || "Other",
+    unit_size: p.unit_size || "",
+  }));
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* ═══ COMPONENT ═══ */
 
 const VendorDashboard: React.FC = () => {
+  /* ── Data state ── */
+  const [loading, setLoading] = useState(true);
+  const [store, setStore] = useState<Store | null>(null);
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
+  const [priceHistories, setPriceHistories] = useState<Record<string, PriceHistoryEntry[]>>({});
+
+  /* ── UI state ── */
   const [activeTab, setActiveTab] = useState<string>("products");
-  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>(INITIAL_PRODUCTS);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState<string>("");
   const [editSale, setEditSale] = useState<string>("");
@@ -160,9 +162,33 @@ const VendorDashboard: React.FC = () => {
   const [showProductModal, setShowProductModal] = useState(false);
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", brand: "", category: "Produce", unit_type: "", price: "" });
+  const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
+  const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogProduct | null>(null);
+  const [catalogPrice, setCatalogPrice] = useState("");
+  const [newProduct, setNewProduct] = useState({ name: "", brand: "", category: "Produce", unit_size: "", price: "" });
   const priceInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  /* ── Data fetching ── */
+  const refreshProducts = useCallback(async () => {
+    const res = await getStoreProducts();
+    if (res.data) setStoreProducts(transformProducts(res.data));
+  }, []);
+
+  useEffect(() => {
+    async function loadData() {
+      const [storeRes, productsRes, reviewsRes] = await Promise.all([
+        getVendorStore(),
+        getStoreProducts(),
+        getStoreReviews(),
+      ]);
+      if (storeRes.data) setStore(storeRes.data as Store);
+      if (productsRes.data) setStoreProducts(transformProducts(productsRes.data));
+      if (reviewsRes.data) setReviews(transformReviews(reviewsRes.data));
+      setLoading(false);
+    }
+    loadData();
+  }, []);
 
   useEffect(() => {
     if (editingId && priceInputRef.current) priceInputRef.current.focus();
@@ -174,17 +200,43 @@ const VendorDashboard: React.FC = () => {
     }
   }, [showProductModal, modalMode]);
 
+  /* ── Catalog search with debounce ── */
+  useEffect(() => {
+    if (modalMode !== "search" || catalogSearch.trim().length === 0) {
+      setCatalogResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const res = await searchCatalog(catalogSearch);
+      if (res.data) setCatalogResults(transformCatalog(res.data));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [catalogSearch, modalMode]);
+
+  /* ── Computed values ── */
   const inStockCount = storeProducts.filter((p) => p.in_stock).length;
   const outOfStockCount = storeProducts.filter((p) => !p.in_stock).length;
   const onSaleCount = storeProducts.filter((p) => p.sale_price !== null).length;
-  const stockPct = Math.round((inStockCount / storeProducts.length) * 100);
-  const avgRating = (REVIEWS.reduce((s, r) => s + r.rating, 0) / REVIEWS.length).toFixed(1);
+  const stockPct = storeProducts.length ? Math.round((inStockCount / storeProducts.length) * 100) : 0;
+  const avgRating = reviews.length
+    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+    : "0.0";
 
   const categoryCounts: Record<string, number> = {};
   storeProducts.forEach((p) => {
     categoryCounts[p.category] = (categoryCounts[p.category] || 0) + 1;
   });
 
+  const ratingCounts = [5, 4, 3, 2, 1].map((r) => ({
+    rating: r,
+    count: reviews.filter((rv) => rv.rating === r).length,
+    pct: reviews.length ? (reviews.filter((rv) => rv.rating === r).length / reviews.length) * 100 : 0,
+  }));
+
+  const storeName = store?.name || "Your Store";
+  const storeInitials = storeName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+
+  /* ── Handlers ── */
   const startEdit = (p: StoreProduct) => {
     setEditingId(p.id);
     setEditPrice(p.price.toFixed(2));
@@ -193,29 +245,39 @@ const VendorDashboard: React.FC = () => {
 
   const cancelEdit = () => setEditingId(null);
 
-  const saveEdit = (id: string) => {
+  const saveEdit = async (id: string) => {
     const np = parseFloat(editPrice);
     if (isNaN(np)) return;
     const ns = editSale.trim() ? parseFloat(editSale) : null;
     if (ns !== null && isNaN(ns)) return;
-    setStoreProducts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, price: np, sale_price: ns, data_source: "vendor", updated_at: new Date().toISOString() }
-          : p
-      )
-    );
+
+    const res = await updateProductPrice(id, np, ns);
+    if ('success' in res) {
+      setStoreProducts((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, price: np, sale_price: ns, data_source: "vendor", updated_at: new Date().toISOString() }
+            : p
+        )
+      );
+    }
     setEditingId(null);
   };
 
-  const toggleStock = (id: string) => {
-    setStoreProducts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, in_stock: !p.in_stock, data_source: "vendor", updated_at: new Date().toISOString() }
-          : p
-      )
-    );
+  const toggleStock = async (id: string) => {
+    const product = storeProducts.find((p) => p.id === id);
+    if (!product) return;
+
+    const res = await toggleProductStock(id, !product.in_stock);
+    if ('success' in res) {
+      setStoreProducts((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, in_stock: !p.in_stock, data_source: "vendor", updated_at: new Date().toISOString() }
+            : p
+        )
+      );
+    }
   };
 
   const handleEditKeydown = (e: React.KeyboardEvent, id: string) => {
@@ -223,72 +285,82 @@ const VendorDashboard: React.FC = () => {
     if (e.key === "Escape") cancelEdit();
   };
 
+  const loadPriceHistory = async (storeProductId: string) => {
+    if (historyOpen === storeProductId) {
+      setHistoryOpen(null);
+      return;
+    }
+    if (!priceHistories[storeProductId]) {
+      const res = await getProductPriceHistory(storeProductId);
+      if (res.data && res.data.length > 0) {
+        setPriceHistories((prev) => ({ ...prev, [storeProductId]: res.data as PriceHistoryEntry[] }));
+      }
+    }
+    setHistoryOpen(storeProductId);
+  };
+
   /* ── Modal helpers ── */
   const openModal = () => {
     setShowProductModal(true);
     setModalMode("search");
     setCatalogSearch("");
-    setNewProduct({ name: "", brand: "", category: "Produce", unit_type: "", price: "" });
+    setCatalogResults([]);
+    setSelectedCatalogItem(null);
+    setCatalogPrice("");
+    setNewProduct({ name: "", brand: "", category: "Produce", unit_size: "", price: "" });
   };
 
   const closeModal = () => setShowProductModal(false);
 
-  const catalogResults = catalogSearch.trim().length > 0
-    ? CATALOG.filter((c) =>
-        c.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
-        (c.brand && c.brand.toLowerCase().includes(catalogSearch.toLowerCase())) ||
-        c.category.toLowerCase().includes(catalogSearch.toLowerCase())
-      )
-    : [];
+  const addFromCatalog = async () => {
+    if (!selectedCatalogItem) return;
+    const price = parseFloat(catalogPrice);
+    if (isNaN(price) || price <= 0) return;
 
-  const addFromCatalog = (item: CatalogProduct) => {
-    const newId = `sp${Date.now()}`;
-    setStoreProducts((prev) => [
-      ...prev,
-      {
-        id: newId,
-        name: item.name,
-        brand: item.brand,
-        category: item.category,
-        unit_type: item.unit_type,
-        price: item.avg_price,
-        sale_price: null,
-        in_stock: true,
-        data_source: "vendor",
-        updated_at: new Date().toISOString(),
-      },
-    ]);
+    const res = await addCatalogProduct(selectedCatalogItem.id, price);
+    if ('success' in res) {
+      await refreshProducts();
+    }
     closeModal();
   };
 
-  const createNewProduct = () => {
+  const createNewProduct = async () => {
     const price = parseFloat(newProduct.price);
     if (!newProduct.name.trim() || isNaN(price)) return;
-    const newId = `sp${Date.now()}`;
-    setStoreProducts((prev) => [
-      ...prev,
-      {
-        id: newId,
-        name: newProduct.name.trim(),
-        brand: newProduct.brand.trim() || null,
-        category: newProduct.category,
-        unit_type: newProduct.unit_type.trim(),
-        price,
-        sale_price: null,
-        in_stock: true,
-        data_source: "vendor",
-        updated_at: new Date().toISOString(),
-      },
-    ]);
+
+    const res = await createAndAddProduct({
+      name: newProduct.name.trim(),
+      brand: newProduct.brand.trim(),
+      category: newProduct.category,
+      unitSize: newProduct.unit_size.trim(),
+      price,
+    });
+
+    if ('success' in res) {
+      await refreshProducts();
+    }
     closeModal();
   };
 
-  /* ── Rating helpers ── */
-  const ratingCounts = [5, 4, 3, 2, 1].map((r) => ({
-    rating: r,
-    count: REVIEWS.filter((rv) => rv.rating === r).length,
-    pct: REVIEWS.length ? (REVIEWS.filter((rv) => rv.rating === r).length / REVIEWS.length) * 100 : 0,
-  }));
+  /* ── Loading state ── */
+  if (loading) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center text-stone-900"
+        style={{ background: "#F7F5F0", fontFamily: "'DM Sans', sans-serif" }}
+      >
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&display=swap');
+          .fraunces { font-family: 'Fraunces', serif; }
+        `}</style>
+        <div className="text-center">
+          <div className="w-11 h-11 rounded-[14px] flex items-center justify-center text-white text-xl font-bold fraunces mx-auto mb-4"
+            style={{ background: "linear-gradient(135deg,#2D6A4F,#52B788)", boxShadow: "0 4px 14px rgba(45,106,79,.25)" }}>N</div>
+          <div className="text-sm text-stone-400">Loading your dashboard...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -307,7 +379,6 @@ const VendorDashboard: React.FC = () => {
 
       {/* ── Header ── */}
       <header className="max-w-[1320px] mx-auto px-8 pt-6 pb-5 flex justify-between items-center">
-        {/* Logo */}
         <div className="flex items-center gap-3.5">
           <div
             className="w-11 h-11 rounded-[14px] flex items-center justify-center text-white text-xl font-bold fraunces"
@@ -322,7 +393,6 @@ const VendorDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Nav tabs */}
         <nav className="flex gap-1 bg-stone-200 rounded-full p-1">
           {["products", "reviews", "store info"].map((t) => (
             <button
@@ -338,16 +408,18 @@ const VendorDashboard: React.FC = () => {
           ))}
         </nav>
 
-        {/* Store badge */}
-        <div className="flex items-center gap-2.5 cursor-pointer bg-stone-200 rounded-xl px-3.5 py-1.5">
-          <div
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: "linear-gradient(135deg,#D94F30,#F4A261)" }}
-          >TJ</div>
-          <div>
-            <div className="text-sm font-semibold leading-tight">{STORE.name}</div>
-            <div className="text-[11px] text-stone-400">130 Court St</div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 bg-stone-200 rounded-xl px-3.5 py-1.5">
+            <div
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-sm"
+              style={{ background: "linear-gradient(135deg,#D94F30,#F4A261)" }}
+            >{storeInitials}</div>
+            <div>
+              <div className="text-sm font-semibold leading-tight">{storeName}</div>
+              <div className="text-[11px] text-stone-400">{store?.address?.split(",")[0] || ""}</div>
+            </div>
           </div>
+          <ProfileDropdown showSettings={false} />
         </div>
       </header>
 
@@ -361,7 +433,7 @@ const VendorDashboard: React.FC = () => {
           <div className="absolute -bottom-20 right-32 w-44 h-44 rounded-full bg-white/[0.03] pointer-events-none"/>
           <div className="relative z-10">
             <div className="fraunces text-[28px] font-semibold text-white tracking-tight mb-1.5">
-              Welcome back, {STORE.name}
+              Welcome back, {storeName}
             </div>
             <div className="text-white/70 text-[15px] max-w-[520px]">
               <span className="text-green-300 font-semibold">{storeProducts.length} products</span> listed
@@ -444,7 +516,7 @@ const VendorDashboard: React.FC = () => {
             <div className="fraunces text-[42px] font-semibold leading-none text-orange-600">{avgRating}</div>
             <div className="text-[22px] text-orange-500 tracking-widest pb-1">{"★".repeat(Math.round(parseFloat(avgRating)))}</div>
           </div>
-          <div className="text-sm text-stone-400 mb-4">{REVIEWS.length} reviews</div>
+          <div className="text-sm text-stone-400 mb-4">{reviews.length} reviews</div>
           <div className="flex flex-col gap-1.5">
             {ratingCounts.map(({ rating, count, pct }) => (
               <div key={rating} className="flex items-center gap-2">
@@ -491,28 +563,29 @@ const VendorDashboard: React.FC = () => {
             <span className="text-right">Actions</span>
           </div>
 
-          {/* Rows */}
-          {storeProducts.map((p) => {
+          {storeProducts.length === 0 ? (
+            <div className="text-center py-12 text-stone-400 text-sm">
+              No products yet. Click &ldquo;+ Add Product&rdquo; to get started.
+            </div>
+          ) : storeProducts.map((p) => {
             const isEditing = editingId === p.id;
-            const hasHistory = !!PRICE_HISTORY[p.id];
+            const hasHistory = !!priceHistories[p.id] && priceHistories[p.id].length > 0;
             const isHistoryOpen = historyOpen === p.id;
 
             return (
               <div key={p.id}>
                 <div className="grid grid-cols-[2.2fr_0.8fr_0.9fr_0.7fr_0.7fr_0.7fr_80px] items-center py-3.5 border-b border-stone-100 last:border-b-0 text-sm">
 
-                  {/* Name / brand / category */}
                   <div className="flex items-center gap-2.5">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: catColor(p.category) }}/>
                     <div>
                       <div className="font-medium">{p.name}</div>
                       <div className="text-[11px] text-stone-400">
-                        {p.brand || "Generic"} · {p.category}{p.unit_type ? ` · per ${p.unit_type}` : ""}
+                        {p.brand || "Generic"} · {p.category}{p.unit_size ? ` · per ${p.unit_size}` : ""}
                       </div>
                     </div>
                   </div>
 
-                  {/* Price */}
                   <div>
                     {isEditing ? (
                       <div className="flex items-center gap-1">
@@ -532,7 +605,6 @@ const VendorDashboard: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Sale price */}
                   <div>
                     {isEditing ? (
                       <div className="flex items-center gap-1">
@@ -552,7 +624,6 @@ const VendorDashboard: React.FC = () => {
                     )}
                   </div>
 
-                  {/* In stock toggle */}
                   <div>
                     <button
                       onClick={() => toggleStock(p.id)}
@@ -564,15 +635,12 @@ const VendorDashboard: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Source */}
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold w-fit ${srcPillClass(p.data_source)}`}>
                     {srcLabel(p.data_source)}
                   </span>
 
-                  {/* Updated */}
                   <span className="text-xs text-stone-400">{fmtTime(p.updated_at)}</span>
 
-                  {/* Actions */}
                   <div className="flex gap-1 justify-end">
                     {isEditing ? (
                       <>
@@ -597,18 +665,16 @@ const VendorDashboard: React.FC = () => {
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                           </svg>
                         </button>
-                        {hasHistory && (
-                          <button
-                            onClick={() => setHistoryOpen(isHistoryOpen ? null : p.id)}
-                            title="Price history"
-                            className={`p-1.5 rounded-lg transition-colors border-none cursor-pointer
-                              ${isHistoryOpen ? "bg-green-100 text-green-800" : "bg-transparent text-stone-400 hover:bg-stone-100 hover:text-stone-700"}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                            </svg>
-                          </button>
-                        )}
+                        <button
+                          onClick={() => loadPriceHistory(p.id)}
+                          title="Price history"
+                          className={`p-1.5 rounded-lg transition-colors border-none cursor-pointer
+                            ${isHistoryOpen ? "bg-green-100 text-green-800" : "bg-transparent text-stone-400 hover:bg-stone-100 hover:text-stone-700"}`}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                          </svg>
+                        </button>
                       </>
                     )}
                   </div>
@@ -621,9 +687,9 @@ const VendorDashboard: React.FC = () => {
                       Price History — {p.name}
                     </div>
                     <div className="flex gap-3">
-                      {PRICE_HISTORY[p.id].map((h, i) => (
+                      {priceHistories[p.id].map((h, i) => (
                         <div key={i} className="flex-1 bg-white rounded-xl p-3.5 border border-stone-100">
-                          <div className="text-[11px] text-stone-400 mb-1">{fmtDate(h.recorded_at)}</div>
+                          <div className="text-[11px] text-stone-400 mb-1">{fmtDate(h.created_at)}</div>
                           <div className="font-semibold text-[15px]">${h.price.toFixed(2)}</div>
                           {h.sale_price && (
                             <div className="text-xs text-green-800 font-semibold mt-1">Sale: ${h.sale_price.toFixed(2)}</div>
@@ -637,7 +703,6 @@ const VendorDashboard: React.FC = () => {
             );
           })}
 
-          {/* Footer */}
           <div className="flex justify-between items-center mt-4 pt-4 border-t-2 border-stone-100">
             <span className="text-sm text-stone-400">
               {storeProducts.length} products · {onSaleCount} on sale · {outOfStockCount} out of stock
@@ -663,7 +728,7 @@ const VendorDashboard: React.FC = () => {
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <div className="font-semibold text-[15px]">{p.name}</div>
-                        <div className="text-xs text-stone-400">{p.brand || "Generic"} · per {p.unit_type}</div>
+                        <div className="text-xs text-stone-400">{p.brand || "Generic"} · per {p.unit_size}</div>
                       </div>
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
                         SALE
@@ -690,7 +755,9 @@ const VendorDashboard: React.FC = () => {
       </div>
       )}
 
+      {/* ═══════════════════════════════════════════ */}
       {/* ══ REVIEWS TAB ══ */}
+      {/* ═══════════════════════════════════════════ */}
       {activeTab === "reviews" && (
       <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-3 gap-5">
 
@@ -708,10 +775,9 @@ const VendorDashboard: React.FC = () => {
             <div className="text-[26px] text-orange-500 tracking-widest mt-2">
               {"★".repeat(Math.round(parseFloat(avgRating)))}{"☆".repeat(5 - Math.round(parseFloat(avgRating)))}
             </div>
-            <div className="text-sm text-stone-400 mt-2">Based on {REVIEWS.length} reviews</div>
+            <div className="text-sm text-stone-400 mt-2">Based on {reviews.length} reviews</div>
           </div>
 
-          {/* Rating Breakdown */}
           <div className="flex flex-col gap-3">
             {ratingCounts.map(({ rating, count, pct }) => (
               <div key={rating} className="flex items-center gap-3">
@@ -727,12 +793,11 @@ const VendorDashboard: React.FC = () => {
             ))}
           </div>
 
-          {/* Quick Stats */}
           <div className="mt-8 pt-6 border-t border-stone-100 grid grid-cols-2 gap-4">
             <div className="bg-stone-50 rounded-xl px-4 py-3 border border-stone-100 text-center">
               <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1">5-Star</div>
               <div className="fraunces text-xl font-semibold text-green-800">
-                {REVIEWS.length ? Math.round((ratingCounts[0].count / REVIEWS.length) * 100) : 0}%
+                {reviews.length ? Math.round((ratingCounts[0].count / reviews.length) * 100) : 0}%
               </div>
             </div>
             <div className="bg-stone-50 rounded-xl px-4 py-3 border border-stone-100 text-center">
@@ -752,46 +817,50 @@ const VendorDashboard: React.FC = () => {
               Customer Reviews
             </div>
             <span className="text-xs font-medium text-stone-400 bg-stone-100 px-3 py-1.5 rounded-full">
-              {REVIEWS.length} total
+              {reviews.length} total
             </span>
           </div>
 
-          <div className="flex flex-col">
-            {REVIEWS.map((r, i) => (
-              <div key={i} className={`py-5 ${i < REVIEWS.length - 1 ? "border-b border-stone-100" : ""}`}>
-                <div className="flex justify-between items-start mb-2.5">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white"
-                      style={{
-                        background: `linear-gradient(135deg, ${
-                          ["#2D6A4F", "#D94F30", "#1565C0", "#D4700A", "#6D6560"][i % 5]
-                        }, ${
-                          ["#52B788", "#F4A261", "#42A5F5", "#FFB74D", "#A1887F"][i % 5]
-                        })`,
-                      }}
-                    >
-                      {r.user_name.charAt(0)}
+          {reviews.length === 0 ? (
+            <div className="text-center py-12 text-stone-400 text-sm">No reviews yet.</div>
+          ) : (
+            <div className="flex flex-col">
+              {reviews.map((r, i) => (
+                <div key={r.id} className={`py-5 ${i < reviews.length - 1 ? "border-b border-stone-100" : ""}`}>
+                  <div className="flex justify-between items-start mb-2.5">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white"
+                        style={{
+                          background: `linear-gradient(135deg, ${
+                            ["#2D6A4F", "#D94F30", "#1565C0", "#D4700A", "#6D6560"][i % 5]
+                          }, ${
+                            ["#52B788", "#F4A261", "#42A5F5", "#FFB74D", "#A1887F"][i % 5]
+                          })`,
+                        }}
+                      >
+                        {r.user_name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[15px]">{r.user_name}</div>
+                        <div className="text-orange-500 text-sm tracking-wider mt-0.5">{starsStr(r.rating)}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="font-semibold text-[15px]">{r.user_name}</div>
-                      <div className="text-orange-500 text-sm tracking-wider mt-0.5">{starsStr(r.rating)}</div>
-                    </div>
+                    <span className="text-xs text-stone-400 bg-stone-50 px-3 py-1.5 rounded-full border border-stone-100">
+                      {fmtDate(r.created_at)}
+                    </span>
                   </div>
-                  <span className="text-xs text-stone-400 bg-stone-50 px-3 py-1.5 rounded-full border border-stone-100">
-                    {fmtDate(r.created_at)}
-                  </span>
+                  {r.comment ? (
+                    <div className="text-sm text-stone-600 leading-relaxed ml-[52px] bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
+                      &ldquo;{r.comment}&rdquo;
+                    </div>
+                  ) : (
+                    <div className="text-sm text-stone-300 italic ml-[52px]">No written review</div>
+                  )}
                 </div>
-                {r.comment ? (
-                  <div className="text-sm text-stone-600 leading-relaxed ml-[52px] bg-stone-50 rounded-xl px-4 py-3 border border-stone-100">
-                    &ldquo;{r.comment}&rdquo;
-                  </div>
-                ) : (
-                  <div className="text-sm text-stone-300 italic ml-[52px]">No written review</div>
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>
@@ -799,9 +868,8 @@ const VendorDashboard: React.FC = () => {
 
       {/* ══ STORE INFO TAB ══ */}
       {activeTab === "store info" && (
-      <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-3 gap-5">
+      <div className="max-w-[1320px] mx-auto px-8 pb-12 grid grid-cols-5 gap-5 items-start">
 
-        {/* ── Store Details ── */}
         <div className="bg-white rounded-2xl p-7 border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 col-span-2">
           <div className="flex justify-between items-center mb-5">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400">
@@ -816,24 +884,22 @@ const VendorDashboard: React.FC = () => {
             </button>
           </div>
 
-          {/* Store header */}
           <div className="flex items-center gap-4 mb-6">
             <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl fraunces"
               style={{ background: "linear-gradient(135deg,#D94F30,#F4A261)" }}
-            >TJ</div>
+            >{storeInitials}</div>
             <div>
-              <div className="fraunces text-[22px] font-semibold tracking-tight">{STORE.name}</div>
-              <div className="text-sm text-stone-400">{STORE.address}</div>
+              <div className="fraunces text-[22px] font-semibold tracking-tight">{storeName}</div>
+              <div className="text-sm text-stone-400">{store?.address || "—"}</div>
             </div>
           </div>
 
-          {/* Info grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {([
               {
                 label: "Store Name",
-                value: STORE.name,
+                value: store?.name,
                 icon: (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
@@ -843,7 +909,7 @@ const VendorDashboard: React.FC = () => {
               },
               {
                 label: "Address",
-                value: STORE.address,
+                value: store?.address,
                 icon: (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -853,7 +919,7 @@ const VendorDashboard: React.FC = () => {
               },
               {
                 label: "Phone",
-                value: STORE.phone,
+                value: store?.phone,
                 icon: (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
@@ -862,7 +928,7 @@ const VendorDashboard: React.FC = () => {
               },
               {
                 label: "Website",
-                value: STORE.website_url,
+                value: store?.website_url,
                 icon: (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="12" cy="12" r="10"/>
@@ -873,7 +939,7 @@ const VendorDashboard: React.FC = () => {
               },
               {
                 label: "Zip Code",
-                value: STORE.zip_code,
+                value: store?.zip_code,
                 icon: (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
@@ -881,7 +947,7 @@ const VendorDashboard: React.FC = () => {
                   </svg>
                 ),
               },
-            ] as { label: string; value: string | null; icon: React.ReactNode }[]).map((f, i) => (
+            ] as { label: string; value: string | null | undefined; icon: React.ReactNode }[]).map((f, i) => (
               <div key={i} className="bg-stone-50 rounded-xl px-4 py-3.5 border border-stone-100 flex items-start gap-3">
                 <div className="text-stone-400 mt-0.5 flex-shrink-0">{f.icon}</div>
                 <div>
@@ -894,7 +960,7 @@ const VendorDashboard: React.FC = () => {
         </div>
 
         {/* ── Map ── */}
-        <div className="bg-white rounded-2xl border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-black/[0.05] hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 overflow-hidden col-span-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 px-7 pt-7 pb-4">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -902,8 +968,12 @@ const VendorDashboard: React.FC = () => {
             </svg>
             Location
           </div>
-          <div className="h-[calc(100%-60px)] min-h-[280px]">
-            <VendorMap address={STORE.address} lat={40.6892} lng={-73.9857} />
+          <div style={{ height: "620px" }}>
+            <VendorMap
+              address={store?.address || ""}
+              lat={store?.lat || 40.6892}
+              lng={store?.lng || -73.9857}
+            />
           </div>
         </div>
 
@@ -915,10 +985,8 @@ const VendorDashboard: React.FC = () => {
       {/* ═══════════════════════════════════════════ */}
       {showProductModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeModal}>
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
-          {/* Modal */}
           <div
             className="relative bg-white rounded-2xl w-full max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col"
             style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.15)" }}
@@ -938,10 +1006,9 @@ const VendorDashboard: React.FC = () => {
                 </button>
               </div>
 
-              {/* Mode toggle */}
               <div className="flex gap-1 bg-stone-100 rounded-full p-1">
                 <button
-                  onClick={() => setModalMode("search")}
+                  onClick={() => { setModalMode("search"); setSelectedCatalogItem(null); setCatalogPrice(""); }}
                   className={`flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer
                     ${modalMode === "search"
                       ? "bg-green-800 text-white shadow-sm"
@@ -964,7 +1031,6 @@ const VendorDashboard: React.FC = () => {
             {/* Modal Body */}
             <div className="px-7 py-5 overflow-y-auto flex-1">
 
-              {/* ── Search Mode ── */}
               {modalMode === "search" && (
                 <div>
                   <div className="relative mb-4">
@@ -974,7 +1040,7 @@ const VendorDashboard: React.FC = () => {
                     <input
                       ref={searchInputRef}
                       value={catalogSearch}
-                      onChange={(e) => setCatalogSearch(e.target.value)}
+                      onChange={(e) => { setCatalogSearch(e.target.value); setSelectedCatalogItem(null); setCatalogPrice(""); }}
                       placeholder="Search by name, brand, or category..."
                       className="w-full border border-stone-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
                     />
@@ -1005,43 +1071,67 @@ const VendorDashboard: React.FC = () => {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2">
-                      {catalogResults.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between p-4 bg-stone-50 rounded-xl border border-stone-100 hover:border-green-200 hover:bg-green-50/30 transition-all cursor-pointer group"
-                          onClick={() => addFromCatalog(item)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: catColor(item.category) }}/>
-                            <div>
-                              <div className="font-medium text-sm">{item.name}</div>
-                              <div className="text-[11px] text-stone-400">
-                                {item.brand || "Generic"} · {item.category} · per {item.unit_type}
+                      {catalogResults.map((item) => {
+                        const isSelected = selectedCatalogItem?.id === item.id;
+                        return (
+                          <div key={item.id}>
+                            <div
+                              className={`flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer group
+                                ${isSelected
+                                  ? "bg-green-50 border-green-200"
+                                  : "bg-stone-50 border-stone-100 hover:border-green-200 hover:bg-green-50/30"}`}
+                              onClick={() => { setSelectedCatalogItem(item); setCatalogPrice(""); }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: catColor(item.category) }}/>
+                                <div>
+                                  <div className="font-medium text-sm">{item.name}</div>
+                                  <div className="text-[11px] text-stone-400">
+                                    {item.brand || "Generic"} · {item.category}{item.unit_size ? ` · per ${item.unit_size}` : ""}
+                                  </div>
+                                </div>
                               </div>
+                              {!isSelected && (
+                                <div className="w-8 h-8 rounded-lg bg-green-100 text-green-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                                  </svg>
+                                </div>
+                              )}
                             </div>
+                            {isSelected && (
+                              <div className="flex items-center gap-3 mt-2 ml-4">
+                                <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider">Your Price</label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                                  <input
+                                    value={catalogPrice}
+                                    onChange={(e) => setCatalogPrice(e.target.value)}
+                                    placeholder="0.00"
+                                    autoFocus
+                                    onKeyDown={(e) => { if (e.key === "Enter") addFromCatalog(); }}
+                                    className="w-28 border border-stone-200 rounded-xl pl-7 pr-3 py-2 text-sm bg-white outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
+                                  />
+                                </div>
+                                <button
+                                  onClick={addFromCatalog}
+                                  disabled={!catalogPrice || isNaN(parseFloat(catalogPrice)) || parseFloat(catalogPrice) <= 0}
+                                  className="bg-green-800 text-white border-none px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer hover:bg-green-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <div className="text-xs text-stone-400">Avg price</div>
-                              <div className="font-semibold text-sm">${item.avg_price.toFixed(2)}</div>
-                            </div>
-                            <div className="w-8 h-8 rounded-lg bg-green-100 text-green-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* ── Create Mode ── */}
               {modalMode === "create" && (
                 <div className="flex flex-col gap-4">
-                  {/* Product Name */}
                   <div>
                     <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Product Name *</label>
                     <input
@@ -1052,7 +1142,6 @@ const VendorDashboard: React.FC = () => {
                     />
                   </div>
 
-                  {/* Brand + Category row */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Brand</label>
@@ -1077,13 +1166,12 @@ const VendorDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Unit Type + Price row */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Unit Type</label>
+                      <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5 block">Unit Size</label>
                       <input
-                        value={newProduct.unit_type}
-                        onChange={(e) => setNewProduct({ ...newProduct, unit_type: e.target.value })}
+                        value={newProduct.unit_size}
+                        onChange={(e) => setNewProduct({ ...newProduct, unit_size: e.target.value })}
                         placeholder="e.g. lb, gal, dozen"
                         className="w-full border border-stone-200 rounded-xl px-4 py-3 text-sm bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10 transition-all"
                       />
@@ -1102,7 +1190,6 @@ const VendorDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Preview */}
                   {newProduct.name.trim() && (
                     <div className="bg-stone-50 rounded-xl p-4 border border-stone-100 mt-2">
                       <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">Preview</div>
@@ -1112,7 +1199,7 @@ const VendorDashboard: React.FC = () => {
                           <div className="font-medium text-sm">{newProduct.name}</div>
                           <div className="text-[11px] text-stone-400">
                             {newProduct.brand || "Generic"} · {newProduct.category}
-                            {newProduct.unit_type && ` · per ${newProduct.unit_type}`}
+                            {newProduct.unit_size && ` · per ${newProduct.unit_size}`}
                             {newProduct.price && ` · $${parseFloat(newProduct.price).toFixed(2)}`}
                           </div>
                         </div>
@@ -1123,7 +1210,6 @@ const VendorDashboard: React.FC = () => {
               )}
             </div>
 
-            {/* Modal Footer */}
             {modalMode === "create" && (
               <div className="px-7 py-4 border-t border-stone-100 flex justify-end gap-2">
                 <button
