@@ -35,20 +35,34 @@ export async function getStoreProducts() {
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error', data: [] }
 
-  const { data, error: queryError } = await supabase
-    .from('store_products')
-    .select(`
-      id, price, sale_price, in_stock, data_source, updated_at,
-      products (
-        id, name, brand, unit_size,
-        product_categories (name)
-      )
-    `)
-    .eq('store_id', storeId)
-    .order('updated_at', { ascending: false })
+  const PAGE_SIZE = 1000
+  const allRows: unknown[] = []
+  let from = 0
 
-  if (queryError) return { error: queryError.message, data: [] }
-  return { data: data || [] }
+  while (true) {
+    const { data, error: queryError } = await supabase
+      .from('store_products')
+      .select(`
+        id, price, sale_price, in_stock, data_source, updated_at,
+        products (
+          id, name, brand, unit_size,
+          product_categories (name)
+        )
+      `)
+      .eq('store_id', storeId)
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (queryError) return { error: queryError.message, data: [] }
+    if (!data || data.length === 0) break
+
+    allRows.push(...data)
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+
+  return { data: allRows }
 }
 
 export async function getProductPriceHistory(storeProductId: string) {
@@ -157,6 +171,7 @@ export async function addCatalogProduct(
       sale_price: salePrice,
       in_stock: inStock,
       data_source: 'vendor',
+      updated_at: new Date().toISOString(),
     })
 
   if (insertError) {
@@ -225,6 +240,7 @@ export async function createAndAddProduct(data: {
       sale_price: data.salePrice ?? null,
       in_stock: data.inStock ?? true,
       data_source: 'vendor',
+      updated_at: new Date().toISOString(),
     })
 
   if (storeProductError) return { error: storeProductError.message }
