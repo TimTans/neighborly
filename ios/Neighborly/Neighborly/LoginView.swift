@@ -12,10 +12,10 @@ struct LoginView: View {
     @State private var isLoading = false
     @State private var showConfirmationAlert = false
 
-    private let brandGreen = Color(red: 0.06, green: 0.49, blue: 0.32)
-    private let lightGreen = Color(red: 0.84, green: 0.91, blue: 0.87)
-    private let backgroundColor = Color(red: 0.94, green: 0.93, blue: 0.91)
-    private let borderColor = Color.gray.opacity(0.55)
+    private let brandGreen = NeighborlyTheme.green
+    private let lightGreen = NeighborlyTheme.greenSoft
+    private let backgroundColor = NeighborlyTheme.background
+    private let borderColor = NeighborlyTheme.border
 
     var body: some View {
         ZStack {
@@ -45,7 +45,7 @@ struct LoginView: View {
                 .frame(maxWidth: 620)
                 .background(
                     RoundedRectangle(cornerRadius: 34, style: .continuous)
-                        .fill(Color.white.opacity(0.96))
+                        .fill(NeighborlyTheme.surface)
                         .shadow(color: .black.opacity(0.12), radius: 20, x: 0, y: 10)
                 )
                 .padding(.horizontal, 24)
@@ -71,7 +71,7 @@ struct LoginView: View {
 
             Text("Smart grocery trips, made easy.")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.gray)
+                .foregroundStyle(NeighborlyTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -173,7 +173,7 @@ struct LoginView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 62)
-            .background(isFormValid ? brandGreen : Color.gray.opacity(0.5))
+            .background(isFormValid ? brandGreen : NeighborlyTheme.textMuted.opacity(0.5))
             .foregroundStyle(.white)
             .clipShape(Capsule())
         }
@@ -190,13 +190,16 @@ struct LoginView: View {
     ) -> some View {
         TextField(title, text: text)
             .font(.system(size: 18))
+            .foregroundStyle(NeighborlyTheme.textPrimary)
+            .tint(brandGreen)
             .padding(.horizontal, 20)
             .frame(height: 74)
-            .background(Color.white)
+            .background(NeighborlyTheme.fieldBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(borderColor, lineWidth: 1.8)
             )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .keyboardType(keyboardType)
             .textContentType(contentType)
             .textInputAutocapitalization(autocapitalization)
@@ -210,13 +213,16 @@ struct LoginView: View {
     ) -> some View {
         SecureField(title, text: text)
             .font(.system(size: 18))
+            .foregroundStyle(NeighborlyTheme.textPrimary)
+            .tint(brandGreen)
             .padding(.horizontal, 20)
             .frame(height: 74)
-            .background(Color.white)
+            .background(NeighborlyTheme.fieldBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(borderColor, lineWidth: 1.8)
             )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .textContentType(contentType)
     }
 
