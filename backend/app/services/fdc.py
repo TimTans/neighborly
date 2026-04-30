@@ -7,6 +7,8 @@ openapi: https://fdc.nal.usda.gov/api-spec/fdc_api.html
 free key at: https://fdc.nal.usda.gov/api-key-signup/
 """
 
+from contextlib import nullcontext
+
 import httpx
 
 from app.core.config import settings
@@ -32,6 +34,7 @@ async def search_foods(
     page_size: int = 25,
     page_number: int = 1,
     data_types: list[str] | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     """
     search fdc for foods matching a keyword query.
@@ -43,6 +46,9 @@ async def search_foods(
     "Branded" - packaged/branded grocery products (probably most useful for us)
     "SR Legacy" - usda standard reference (raw ingredients)
     "Foundation" - foundation foods (detailed research data)
+
+    pass a shared httpx.AsyncClient via client to reuse connections
+    across many calls (avoids a new TCP handshake per request).
     """
     params: dict = {
         "api_key": settings.FDC_API_KEY,
@@ -53,8 +59,9 @@ async def search_foods(
     if data_types:
         params["dataType"] = ",".join(data_types)
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"{FDC_BASE_URL}/foods/search", params=params)
+    cm = nullcontext(client) if client else httpx.AsyncClient()
+    async with cm as c:
+        response = await c.get(f"{FDC_BASE_URL}/foods/search", params=params)
         response.raise_for_status()
         return response.json()
 

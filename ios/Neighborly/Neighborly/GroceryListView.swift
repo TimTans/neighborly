@@ -40,6 +40,7 @@ final class NetworkMonitor {
 final class LocationHelper: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private(set) var lastLocation: CLLocation?
+    private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
 
     override init() {
         super.init()
@@ -54,12 +55,44 @@ final class LocationHelper: NSObject, CLLocationManagerDelegate {
         manager.requestLocation()
     }
 
+    /// Request location and wait up to `timeout` seconds for a fix.
+    /// Returns the cached location immediately if already available.
+    func requestLocation(timeout: TimeInterval = 3) async -> CLLocation? {
+        if let lastLocation { return lastLocation }
+
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+        manager.requestLocation()
+
+        return await withCheckedContinuation { continuation in
+            locationContinuation = continuation
+
+            // timeout: resolve with nil if location doesn't arrive in time
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(timeout))
+                if let pending = locationContinuation {
+                    locationContinuation = nil
+                    pending.resume(returning: lastLocation)
+                }
+            }
+        }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         lastLocation = locations.last
+        if let continuation = locationContinuation {
+            locationContinuation = nil
+            continuation.resume(returning: lastLocation)
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // silently fall back to no location — tiebreaker just won't apply
+        if let continuation = locationContinuation {
+            locationContinuation = nil
+            continuation.resume(returning: nil)
+        }
     }
 }
 
@@ -71,15 +104,46 @@ struct GroceryListView: View {
     var routeState: RouteState
     @Binding var selectedTab: Int
 
+    @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")       private var maxStops: Int    = 5
+    @AppStorage("maxRadiusMiles") private var maxRadiusMiles: Double = 10
+    @AppStorage("wellnessEnabled")      private var savedWellnessEnabled: Bool = true
+    @AppStorage("avoidPeanuts")         private var savedAvoidPeanuts: Bool = true
+    @AppStorage("avoidDairy")           private var savedAvoidDairy: Bool = false
+    @AppStorage("avoidShellfish")       private var savedAvoidShellfish: Bool = false
+    @AppStorage("avoidWheat")           private var savedAvoidWheat: Bool = false
+    @AppStorage("sodiumLimit")          private var savedSodiumLimit: String = ""
+    @AppStorage("cholesterolLimit")     private var savedCholesterolLimit: String = ""
+    @AppStorage("sugarLimit")           private var savedSugarLimit: String = ""
     @State private var searchText = ""
     @State private var searchResults: [Product] = []
     @State private var isSearching = false
     @State private var searchError: String?
+    @State private var searchPage = 1
+    @State private var searchTotalCount = 0
+    @State private var isLoadingMore = false
     @State private var selectedItem: GroceryListItem?
     @State private var selectedProduct: Product?
     @State private var searchDetailProduct: Product?
     @State private var networkMonitor = NetworkMonitor()
     @State private var locationHelper = LocationHelper()
+    @State private var nutritionCache: [String: ProductNutrition] = [:]
+    @State private var nutritionLoaded = false
+    @State private var wellnessWarnings: [(name: String, reasons: [String])] = []
+    @State private var showWellnessWarning = false
+
+    private var currentPrefs: Preferences {
+        var p = Preferences()
+        p.wellnessEnabled    = savedWellnessEnabled
+        p.avoidPeanuts       = savedAvoidPeanuts
+        p.avoidDairy         = savedAvoidDairy
+        p.avoidShellfish     = savedAvoidShellfish
+        p.avoidWheat         = savedAvoidWheat
+        p.sodiumLimit        = savedSodiumLimit
+        p.cholesterolLimit   = savedCholesterolLimit
+        p.sugarLimit         = savedSugarLimit
+        return p
+    }
 
     var body: some View {
         NavigationStack {
@@ -120,13 +184,27 @@ struct GroceryListView: View {
                     .presentationDetents([.medium])
             }
             .sheet(item: $searchDetailProduct) { product in
-                ProductDetailSheet(product: product) {
+                ProductDetailSheet(product: product, prefs: currentPrefs) {
                     addOrIncrement(product)
                     searchDetailProduct = nil
                     searchText = ""
                     searchResults = []
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showWellnessWarning) {
+                WellnessWarningSheet(warnings: wellnessWarnings) {
+                    showWellnessWarning = false
+                    Task { await optimizeRoute() }
+                } onReview: {
+                    showWellnessWarning = false
+                }
+                .presentationDetents([.medium])
+            }
+            .alert("No Route Found", isPresented: showNoRouteAlert) {
+                Button("OK") { routeState.noRouteReason = nil }
+            } message: {
+                Text("No route found with your preferences (Max radius or max stops)")
             }
         }
         .task(id: searchText) {
@@ -139,6 +217,9 @@ struct GroceryListView: View {
             guard networkMonitor.didReconnect else { return }
             await refreshPrices()
             networkMonitor.acknowledgeReconnect()
+        }
+        .task(id: items.map { $0.productId ?? "" }.joined()) {
+            await loadNutrition()
         }
     }
 
@@ -163,6 +244,8 @@ struct GroceryListView: View {
                     searchText = ""
                     searchResults = []
                     searchError = nil
+                    searchPage = 1
+                    searchTotalCount = 0
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(NeighborlyTheme.textMuted)
@@ -205,6 +288,9 @@ struct GroceryListView: View {
                                 Text(product.unitSize)
                                     .font(.caption)
                                     .foregroundStyle(NeighborlyTheme.textMuted)
+                                if let nutrition = product.productNutrition {
+                                    AllergenChips(nutrition: nutrition, prefs: currentPrefs)
+                                }
                             }
 
                             Spacer()
@@ -238,6 +324,16 @@ struct GroceryListView: View {
                         Divider()
                             .padding(.leading, 52)
                     }
+                }
+
+                // load more when reaching the bottom
+                if searchResults.count < searchTotalCount {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .onAppear {
+                            Task { await loadMoreResults() }
+                        }
                 }
             }
             .background(NeighborlyTheme.cardBackground)
@@ -346,14 +442,25 @@ struct GroceryListView: View {
     private var groceryList: some View {
         List {
             ForEach(items) { item in
-                GroceryItemRow(item: item)
-                    .listRowBackground(NeighborlyTheme.cardBackground)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        Task {
-                            await fetchAndShowDetail(for: item)
-                        }
+                ZStack(alignment: .topTrailing) {
+                    GroceryItemRow(item: item)
+
+                    if let pid = item.productId,
+                       let nutrition = nutritionCache[pid],
+                       !nutrition.violations(against: currentPrefs).isEmpty {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.system(size: 14))
+                            .offset(x: 4, y: -4)
                     }
+                }
+                .listRowBackground(NeighborlyTheme.cardBackground)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    Task {
+                        await fetchAndShowDetail(for: item)
+                    }
+                }
             }
             .onDelete(perform: deleteItems)
 
@@ -377,7 +484,13 @@ struct GroceryListView: View {
 
     private var createRouteButton: some View {
         Button {
-            Task { await optimizeRoute() }
+            let warnings = collectViolations()
+            if warnings.isEmpty {
+                Task { await optimizeRoute() }
+            } else {
+                wellnessWarnings = warnings
+                showWellnessWarning = true
+            }
         } label: {
             HStack(spacing: 8) {
                 if routeState.isOptimizing {
@@ -400,6 +513,13 @@ struct GroceryListView: View {
         .padding(.bottom, 8)
     }
 
+    private var showNoRouteAlert: Binding<Bool> {
+        Binding(
+            get: { routeState.noRouteReason != nil },
+            set: { if !$0 { routeState.noRouteReason = nil } }
+        )
+    }
+
     private func optimizeRoute() async {
         let productIds = items.compactMap { $0.productId }
         guard !productIds.isEmpty else {
@@ -407,26 +527,31 @@ struct GroceryListView: View {
             return
         }
 
-        // request location for tiebreaking (non-blocking)
-        locationHelper.requestIfNeeded()
-
-        routeState.isOptimizing = true
-        routeState.error = nil
+        routeState.isOptimizing  = true
+        routeState.error         = nil
+        routeState.noRouteReason = nil
 
         do {
-            let loc = locationHelper.lastLocation
+            let loc  = await locationHelper.requestLocation()
+            let mode = Priority(rawValue: savedPriority)?.backendMode ?? "cost"
             let route = try await APIService.optimizeRoute(
-                productIds: productIds,
-                userLat: loc?.coordinate.latitude,
-                userLng: loc?.coordinate.longitude
+                productIds:     productIds,
+                userLat:        loc?.coordinate.latitude,
+                userLng:        loc?.coordinate.longitude,
+                mode:           mode,
+                maxStops:       maxStops == 0 ? nil : maxStops,
+                maxRadiusMiles: maxRadiusMiles == 0 ? nil : maxRadiusMiles
             )
-            routeState.optimizedRoute = route
-            routeState.isOptimizing = false
-            selectedTab = 2
+            if route.noRoute == true {
+                routeState.noRouteReason = route.noRouteReason ?? "constraints"
+            } else {
+                routeState.optimizedRoute = route
+                selectedTab = 2
+            }
         } catch {
             routeState.error = "Couldn't optimize route"
-            routeState.isOptimizing = false
         }
+        routeState.isOptimizing = false
     }
 
     // MARK: - Actions
@@ -438,11 +563,14 @@ struct GroceryListView: View {
             searchResults = []
             searchError = nil
             isSearching = false
+            searchPage = 1
+            searchTotalCount = 0
             return
         }
 
         isSearching = true
         searchError = nil
+        searchPage = 1
 
         try? await Task.sleep(for: .milliseconds(300))
 
@@ -452,16 +580,36 @@ struct GroceryListView: View {
             let response = try await APIService.searchProducts(query: query)
             guard !Task.isCancelled else { return }
             searchResults = response.data
+            searchTotalCount = response.count
             searchError = nil
         } catch is CancellationError {
             return
         } catch {
             guard !Task.isCancelled else { return }
             searchResults = []
+            print("search error: \(error)")
             searchError = "Couldn't reach server"
         }
 
         isSearching = false
+    }
+
+    private func loadMoreResults() async {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !isLoadingMore, searchResults.count < searchTotalCount else { return }
+
+        isLoadingMore = true
+        let nextPage = searchPage + 1
+
+        do {
+            let response = try await APIService.searchProducts(query: query, page: nextPage)
+            searchResults.append(contentsOf: response.data)
+            searchPage = nextPage
+        } catch {
+            // silently fail on pagination, user still has existing results
+        }
+
+        isLoadingMore = false
     }
 
     private func addOrIncrement(_ product: Product) {
@@ -509,6 +657,38 @@ struct GroceryListView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func loadNutrition() async {
+        let productIds = items.compactMap { $0.productId }
+        guard !productIds.isEmpty else { return }
+
+        var cache: [String: ProductNutrition] = [:]
+        for id in productIds {
+            guard let product = try? await APIService.getProduct(id: id) else { continue }
+            if let nutrition = product.productNutrition {
+                cache[id] = nutrition
+            }
+        }
+        nutritionCache = cache
+        nutritionLoaded = true
+    }
+
+    private func collectViolations() -> [(name: String, reasons: [String])] {
+        items.compactMap { item -> (name: String, reasons: [String])? in
+            guard let pid = item.productId,
+                  let nutrition = nutritionCache[pid] else { return nil }
+            let vs = nutrition.violations(against: currentPrefs)
+            guard !vs.isEmpty else { return nil }
+            let reasons = vs.map { violation -> String in
+                switch violation {
+                case .allergen(let name): return "contains \(name)"
+                case .nutrientExceeded(let name, let actual, let limit):
+                    return "\(name) \(String(format: "%.0f", actual)) (limit \(String(format: "%.0f", limit)))"
+                }
+            }
+            return (name: item.name, reasons: reasons)
         }
     }
 }
@@ -580,11 +760,6 @@ struct ItemDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(NeighborlyTheme.border.opacity(0.75))
-                .frame(width: 36, height: 5)
-                .padding(.top, 10)
-
             VStack(alignment: .leading, spacing: 16) {
                 // Item header
                 HStack(alignment: .top, spacing: 14) {
@@ -726,15 +901,11 @@ struct ItemDetailSheet: View {
 
 struct ProductDetailSheet: View {
     let product: Product
+    let prefs: Preferences
     let onAdd: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(NeighborlyTheme.border.opacity(0.75))
-                .frame(width: 36, height: 5)
-                .padding(.top, 10)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // Product header
@@ -838,6 +1009,10 @@ struct ProductDetailSheet: View {
                         }
                     }
 
+                    if let nutrition = product.productNutrition, prefs.wellnessEnabled {
+                        WellnessPanel(nutrition: nutrition, prefs: prefs)
+                    }
+
                     // Add to list button
                     Button(action: onAdd) {
                         HStack {
@@ -855,6 +1030,199 @@ struct ProductDetailSheet: View {
                 }
                 .padding(20)
             }
+        }
+        .background(NeighborlyTheme.background)
+    }
+}
+
+// MARK: - Allergen Chips
+
+private struct AllergenChips: View {
+    let nutrition: ProductNutrition
+    let prefs: Preferences
+
+    var body: some View {
+        let chips = chips()
+        if !chips.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(chips, id: \.self) { chip in
+                    Text(chip)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(NeighborlyTheme.orange)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
+    private func chips() -> [String] {
+        var result: [String] = []
+        if prefs.avoidPeanuts   && nutrition.containsPeanuts   == true { result.append("🥜 Peanuts") }
+        if prefs.avoidDairy     && nutrition.containsDairy     == true { result.append("🥛 Dairy") }
+        if prefs.avoidShellfish && nutrition.containsShellfish == true { result.append("🦐 Shellfish") }
+        if prefs.avoidWheat     && nutrition.containsWheat     == true { result.append("🌾 Wheat") }
+        return result
+    }
+}
+
+// MARK: - Wellness Panel
+
+private struct WellnessPanel: View {
+    let nutrition: ProductNutrition
+    let prefs: Preferences
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NUTRITION (PER SERVING)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NeighborlyTheme.textMuted)
+                .tracking(0.5)
+
+            nutrientRow(label: "Sodium",      value: nutrition.sodiumMg,      unit: "mg", limitStr: prefs.sodiumLimit)
+            nutrientRow(label: "Cholesterol", value: nutrition.cholesterolMg, unit: "mg", limitStr: prefs.cholesterolLimit)
+            nutrientRow(label: "Sugar",       value: nutrition.sugarG,        unit: "g",  limitStr: prefs.sugarLimit)
+
+            if let cal = nutrition.caloriesKcal {
+                Divider().opacity(0.15)
+                HStack(spacing: 8) {
+                    Label("\(Int(cal)) kcal", systemImage: "flame")
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                    if let protein = nutrition.proteinG {
+                        Text("·  \(String(format: "%.1f", protein))g protein")
+                            .font(.caption)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
+                    if let fat = nutrition.fatG {
+                        Text("·  \(String(format: "%.1f", fat))g fat")
+                            .font(.caption)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
+                }
+            }
+
+            AllergenChips(nutrition: nutrition, prefs: prefs)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.gray.opacity(0.06))
+        )
+    }
+
+    @ViewBuilder
+    private func nutrientRow(label: String, value: Double?, unit: String, limitStr: String) -> some View {
+        let limit = parseLimit(limitStr)
+        let fraction: Double? = (value != nil && limit != nil) ? min((value! / limit!), 1.0) : nil
+
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label).font(.caption).foregroundStyle(NeighborlyTheme.textSecondary)
+                Spacer()
+                if let v = value {
+                    Text("\(String(format: "%.0f", v)) \(unit)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(fraction.map { barColor($0) } ?? NeighborlyTheme.textMuted)
+                } else {
+                    Text("—").font(.caption).foregroundStyle(NeighborlyTheme.textMuted)
+                }
+                if let limit {
+                    Text("/ \(String(format: "%.0f", limit)) \(unit) limit")
+                        .font(.caption2).foregroundStyle(NeighborlyTheme.textMuted)
+                }
+            }
+            if let f = fraction {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.gray.opacity(0.12))
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(barColor(f))
+                            .frame(width: geo.size.width * f)
+                    }
+                }
+                .frame(height: 4)
+            }
+        }
+    }
+
+    private func barColor(_ fraction: Double) -> Color {
+        if fraction < 0.5 { return NeighborlyTheme.green }
+        if fraction < 0.8 { return NeighborlyTheme.orange }
+        return .red
+    }
+
+    private func parseLimit(_ s: String) -> Double? {
+        guard !s.isEmpty else { return nil }
+        let token = s.components(separatedBy: CharacterSet(charactersIn: " /\t")).first ?? ""
+        return Double(token)
+    }
+}
+
+// MARK: - Wellness Warning Sheet
+
+private struct WellnessWarningSheet: View {
+    let warnings: [(name: String, reasons: [String])]
+    let onContinue: () -> Void
+    let onReview: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(NeighborlyTheme.orange)
+                        .font(.title2)
+                    Text("Dietary Warning")
+                        .font(.headline)
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+                }
+
+                Text("These items may not match your preferences:")
+                    .font(.subheadline)
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(warnings, id: \.name) { warning in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("· \(warning.name)")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(NeighborlyTheme.textPrimary)
+                            Text(warning.reasons.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundStyle(NeighborlyTheme.orange)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(NeighborlyTheme.orangeSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(20)
+
+            Spacer()
+
+            VStack(spacing: 10) {
+                Button(action: onContinue) {
+                    Text("Continue Anyway")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(NeighborlyTheme.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+
+                Button(action: onReview) {
+                    Text("Review List")
+                        .font(.subheadline)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
         .background(NeighborlyTheme.background)
     }

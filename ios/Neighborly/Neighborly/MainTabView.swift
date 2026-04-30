@@ -5,6 +5,7 @@ final class RouteState {
     var optimizedRoute: OptimizedRoute?
     var isOptimizing = false
     var error: String?
+    var noRouteReason: String?
 }
 
 struct MainTabView: View {

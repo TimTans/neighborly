@@ -30,6 +30,7 @@ from pathlib import Path
 
 from app.scraper.shoprite import StoreConfig, scrape_store, CloudflareBlockedError, USER_AGENT
 from app.scraper.config import STORES, CATEGORIES, build_browse_url, StoreInfo, CategoryConfig
+from app.services.nutrition_service import enrich_batch
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,6 +143,20 @@ async def scrape_category(
     }
 
 
+async def enrich_scraped_products() -> None:
+    """find all products with a upc but no nutrition row and enrich from fdc."""
+    from app.services.nutrition_service import get_unenriched_pairs
+
+    pairs = await get_unenriched_pairs()
+    if not pairs:
+        logger.info("no products need enrichment")
+        return
+
+    logger.info("enriching %d products from fdc...", len(pairs))
+    summary = await enrich_batch(pairs)
+    logger.info("enrichment done: %s", summary)
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Scrape ShopRite products")
     parser.add_argument("--store", type=str, help="scrape only this store_id (e.g. 218)")
@@ -175,40 +190,52 @@ async def main() -> int:
             return 1
 
     total_start = time.monotonic()
-    results = []
 
-    for store in stores:
-        for category in categories:
+    # run all store x category combinations concurrently, capped by semaphore.
+    # each scrape_category() opens its own browser so tasks are independent.
+    # semaphore=2 keeps RAM reasonable (~400-800 MB peak with 2 headed browsers).
+    semaphore = asyncio.Semaphore(2)
+    cloudflare_lock = asyncio.Lock()
+
+    async def bounded_scrape(store: StoreInfo, category: CategoryConfig) -> dict:
+        async with semaphore:
             logger.info("scraping %s / %s ...", store.name, category.name)
             try:
-                result = await scrape_category(store, category, write_db=args.db)
-                results.append(result)
+                return await scrape_category(store, category, write_db=args.db)
             except CloudflareBlockedError:
-                # session expired - refresh and retry this category
                 logger.warning("cloudflare blocked %s / %s - refreshing session...", store.name, category.name)
+                async with cloudflare_lock:
+                    try:
+                        await refresh_session()
+                    except Exception:
+                        pass
                 try:
-                    await refresh_session()
-                    # retry the same category with the new session
-                    result = await scrape_category(store, category, write_db=args.db)
-                    results.append(result)
+                    return await scrape_category(store, category, write_db=args.db)
                 except Exception as retry_err:
                     logger.error("retry FAILED %s / %s: %s", store.name, category.name, retry_err)
-                    results.append({
+                    return {
                         "store": store.name,
                         "category": category.name,
                         "products": 0,
                         "duration": 0,
                         "error": str(retry_err),
-                    })
+                    }
             except Exception as e:
                 logger.error("FAILED %s / %s: %s", store.name, category.name, e)
-                results.append({
+                return {
                     "store": store.name,
                     "category": category.name,
                     "products": 0,
                     "duration": 0,
                     "error": str(e),
-                })
+                }
+
+    tasks = [
+        bounded_scrape(store, category)
+        for store in stores
+        for category in categories
+    ]
+    results = list(await asyncio.gather(*tasks))
 
     total_elapsed = time.monotonic() - total_start
 
@@ -227,6 +254,14 @@ async def main() -> int:
     print(f"  Total: {total_products} products | {total_elapsed:.1f}s")
     print(f"  Output: {'Supabase' if args.db else 'JSON files in data/'}")
     print(f"{'=' * 60}\n")
+
+    if args.db:
+        enrich_start = time.monotonic()
+        logger.info("starting fdc nutrition enrichment...")
+        await enrich_scraped_products()
+        enrich_elapsed = time.monotonic() - enrich_start
+        print(f"\n  Enrichment: {enrich_elapsed:.1f}s")
+        print(f"  Total (scrape + enrich): {time.monotonic() - total_start:.1f}s")
 
     return 0
 

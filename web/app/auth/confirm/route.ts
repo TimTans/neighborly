@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
     | 'recovery'
     | 'invite'
     | null
-  const next = searchParams.get('next') ?? '/'
+  const rawNext = searchParams.get('next') ?? '/'
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/'
 
   if (!token_hash || !type) {
     return NextResponse.redirect(

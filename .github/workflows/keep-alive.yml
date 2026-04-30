@@ -1,0 +1,22 @@
+name: Keep Alive
+
+"on":
+  schedule:
+    # every 5 minutes; render free tier sleeps after 15 min of inactivity
+    # and github actions cron can drift several minutes under load
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoint
+        run: |
+          curl -fsS --retry 3 --retry-delay 10 --max-time 60 \
+            https://neighborly-backend-rf8m.onrender.com/health

@@ -28,7 +28,10 @@ async def search_products(
     q = sb.table("products").select(
         "id, name, brand, image_url, unit_size, upc, "
         "product_categories(id, name, slug), "
-        "store_products(price, sale_price, in_stock, store_id, stores(name, chain, store_number))",
+        "store_products(price, sale_price, in_stock, store_id, stores(name, chain, store_number)), "
+        "product_nutrition(serving_size_g, servings_per_container, calories_kcal, "
+        "protein_g, fat_g, carbs_g, fiber_g, sodium_mg, cholesterol_mg, sugar_g, "
+        "contains_dairy, contains_peanuts, contains_shellfish, contains_wheat)",
         count="exact",
     )
 
@@ -55,7 +58,10 @@ async def get_product(product_id: str) -> dict | None:
             "id, name, brand, image_url, unit_size, upc, "
             "product_categories(id, name, slug), "
             "store_products(price, sale_price, in_stock, store_id, "
-            "stores(id, name, chain, store_number, zip_code))"
+            "stores(id, name, chain, store_number, zip_code)), "
+            "product_nutrition(serving_size_g, servings_per_container, calories_kcal, "
+            "protein_g, fat_g, carbs_g, fiber_g, sodium_mg, cholesterol_mg, sugar_g, "
+            "contains_dairy, contains_peanuts, contains_shellfish, contains_wheat)"
         ).eq("id", product_id).execute()
 
         if not result.data:

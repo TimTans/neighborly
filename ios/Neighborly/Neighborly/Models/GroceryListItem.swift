@@ -26,7 +26,7 @@ final class GroceryListItem {
             name: product.name,
             price: product.bestPrice ?? 0,
             unitSize: product.unitSize,
-            upc: product.upc,
+            upc: product.upc ?? "",
             productId: product.id
         )
     }

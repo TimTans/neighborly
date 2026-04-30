@@ -2,7 +2,6 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { headers } from 'next/headers'
 
 export async function resetPassword(formData: FormData) {
   const supabase = await createClient()
@@ -15,11 +14,11 @@ export async function resetPassword(formData: FormData) {
     )
   }
 
-  const headersList = await headers()
-  const origin = headersList.get('origin') || ''
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/auth/reset-password`,
+    redirectTo: `${siteUrl}/auth/callback?next=/auth/reset-password`,
   })
 
   if (error) {

@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.scraper.keyfood import scrape_store
+from app.services.nutrition_service import enrich_batch
 from app.scraper.config import (
     KEYFOOD_BANNERS,
     KEYFOOD_STORES,
@@ -116,6 +117,20 @@ async def scrape_category(
     }
 
 
+async def enrich_scraped_products() -> None:
+    """find all products with a upc but no nutrition row and enrich from fdc."""
+    from app.services.nutrition_service import get_unenriched_pairs
+
+    pairs = await get_unenriched_pairs()
+    if not pairs:
+        logger.info("no products need enrichment")
+        return
+
+    logger.info("enriching %d products from fdc...", len(pairs))
+    summary = await enrich_batch(pairs)
+    logger.info("enrichment done: %s", summary)
+
+
 async def main() -> int:
     banner_names = ", ".join(KEYFOOD_BANNERS.keys())
     parser = argparse.ArgumentParser(
@@ -188,30 +203,43 @@ async def main() -> int:
             return 1
 
     total_start = time.monotonic()
-    results = []
 
-    for store in stores:
+    # run all store x category combinations concurrently, capped by semaphore.
+    # each scrape_category() opens its own browser so tasks are independent.
+    # semaphore=2 -> safe on most machines (~400-800 MB RAM peak).
+    # increase to 4 for ~4× speedup if you have 4+ GB free.
+    semaphore = asyncio.Semaphore(2)
+
+    async def bounded_scrape(
+        store: StoreInfo,
+        category: KeyFoodCategoryConfig,
+    ) -> dict:
         banner = KEYFOOD_BANNERS[store.banner]
         session_path = OUTPUT_DIR / get_keyfood_session_path(store.banner)
-
-        for category in categories:
+        async with semaphore:
             logger.info("scraping %s / %s ...", store.name, category.name)
             try:
-                result = await scrape_category(
+                return await scrape_category(
                     banner, store, category, session_path,
                     write_db=args.db,
                     headless=not args.headed,
                 )
-                results.append(result)
             except Exception as e:
                 logger.error("FAILED %s / %s: %s", store.name, category.name, e)
-                results.append({
+                return {
                     "store": store.name,
                     "category": category.name,
                     "products": 0,
                     "duration": 0,
                     "error": str(e),
-                })
+                }
+
+    tasks = [
+        bounded_scrape(store, category)
+        for store in stores
+        for category in categories
+    ]
+    results = list(await asyncio.gather(*tasks))
 
     total_elapsed = time.monotonic() - total_start
 
@@ -229,6 +257,14 @@ async def main() -> int:
     print(f"  Total: {total_products} products | {total_elapsed:.1f}s")
     print(f"  Output: {'Supabase' if args.db else 'JSON files in data/'}")
     print(f"{'=' * 60}\n")
+
+    if args.db:
+        enrich_start = time.monotonic()
+        logger.info("starting fdc nutrition enrichment...")
+        await enrich_scraped_products()
+        enrich_elapsed = time.monotonic() - enrich_start
+        print(f"\n  Enrichment: {enrich_elapsed:.1f}s")
+        print(f"  Total (scrape + enrich): {time.monotonic() - total_start:.1f}s")
 
     return 0
 

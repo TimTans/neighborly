@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.scraper.upc import _validate_upc
+
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 30
@@ -145,7 +147,7 @@ def _parse_preloaded_products(
                 name=name,
                 price=price,
                 unit_size=unit_size,
-                upc=sku,
+                upc=_validate_upc(sku),
                 store_id=config.store_id,
                 store_zip=config.zip_code,
                 scraped_at=scraped_at,
@@ -310,8 +312,8 @@ async def scrape_store(
 
     if not products:
         raise RuntimeError(
-            f"scrape completed for store {config.store_id} / category "
-            f"{config.category_id} but no products were collected - "
+            f"scrape completed for store {config.store_id} / {config.browse_url} "
+            "but no products were collected - "
             "check browse_url in StoreConfig. if cloudflare is active, "
             "run scripts/save_session.py to refresh session cookies."
         )

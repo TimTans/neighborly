@@ -1,0 +1,46 @@
+name: Scrape ShopRite
+
+"on":
+  schedule:
+    # 5 AM UTC = 1 AM EDT (summer) / 12 AM EST (winter). DST drift is fine for scrapers.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: scrape-shoprite
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PYTHONPATH: .
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FDC_API_KEY: ${{ secrets.FDC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install deps
+        run: uv sync --frozen
+
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Download session files
+        run: uv run python scripts/sync_sessions.py download
+
+      - name: Scrape ShopRite to Supabase
+        run: uv run python scripts/scrape_shoprite.py --db

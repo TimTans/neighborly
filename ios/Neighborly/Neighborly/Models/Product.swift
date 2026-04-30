@@ -1,14 +1,73 @@
 import Foundation
 
-struct Product: Codable, Identifiable, Hashable {
+struct ProductNutrition: Codable, Hashable, Sendable {
+    let servingSizeG: Double?
+    let servingsPerContainer: Double?
+    let caloriesKcal: Double?
+    let proteinG: Double?
+    let fatG: Double?
+    let carbsG: Double?
+    let fiberG: Double?
+    let sodiumMg: Double?
+    let cholesterolMg: Double?
+    let sugarG: Double?
+    let containsDairy: Bool?
+    let containsPeanuts: Bool?
+    let containsShellfish: Bool?
+    let containsWheat: Bool?
+}
+
+enum WellnessViolation: Equatable {
+    case allergen(String)
+    case nutrientExceeded(String, Double, Double)  // name, actual, limit
+}
+
+extension ProductNutrition {
+    /// parse a limit string like "1000 mg/Day" or "100" into a Double.
+    private static func parseLimit(_ s: String) -> Double? {
+        guard !s.isEmpty else { return nil }
+        let token = s.components(separatedBy: CharacterSet(charactersIn: " /\t")).first ?? ""
+        return Double(token)
+    }
+
+    /// returns all preference violations for this product.
+    /// nil flags (unknown data) are treated as no violation — benefit of the doubt.
+    func violations(against prefs: Preferences) -> [WellnessViolation] {
+        guard prefs.wellnessEnabled else { return [] }
+        var result: [WellnessViolation] = []
+
+        if prefs.avoidPeanuts   && containsPeanuts   == true { result.append(.allergen("peanuts")) }
+        if prefs.avoidDairy     && containsDairy     == true { result.append(.allergen("dairy")) }
+        if prefs.avoidShellfish && containsShellfish == true { result.append(.allergen("shellfish")) }
+        if prefs.avoidWheat     && containsWheat     == true { result.append(.allergen("wheat")) }
+
+        if let limit = Self.parseLimit(prefs.sodiumLimit),
+           let actual = sodiumMg, actual > limit {
+            result.append(.nutrientExceeded("sodium", actual, limit))
+        }
+        if let limit = Self.parseLimit(prefs.cholesterolLimit),
+           let actual = cholesterolMg, actual > limit {
+            result.append(.nutrientExceeded("cholesterol", actual, limit))
+        }
+        if let limit = Self.parseLimit(prefs.sugarLimit),
+           let actual = sugarG, actual > limit {
+            result.append(.nutrientExceeded("sugar", actual, limit))
+        }
+
+        return result
+    }
+}
+
+struct Product: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let brand: String?
     let imageUrl: String?
     let unitSize: String
-    let upc: String
+    let upc: String?
     let productCategories: ProductCategory
     let storeProducts: [StoreProduct]
+    let productNutrition: ProductNutrition?
 
     /// Lowest available price across all stores, preferring sale price.
     var bestPrice: Double? {
@@ -26,7 +85,7 @@ struct Product: Codable, Identifiable, Hashable {
     }
 }
 
-struct ProductCategory: Codable, Identifiable, Hashable {
+struct ProductCategory: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let slug: String
@@ -65,7 +124,7 @@ struct ProductCategory: Codable, Identifiable, Hashable {
     }
 }
 
-struct StoreProduct: Codable, Hashable {
+struct StoreProduct: Codable, Hashable, Sendable {
     let price: Double
     let salePrice: Double?
     let inStock: Bool
@@ -73,7 +132,7 @@ struct StoreProduct: Codable, Hashable {
     let stores: Store
 }
 
-struct Store: Codable, Hashable {
+struct Store: Codable, Hashable, Sendable {
     let id: String?
     let name: String
     let chain: String?
@@ -84,27 +143,30 @@ struct Store: Codable, Hashable {
     let lng: Double?
 }
 
-struct ProductSearchResponse: Codable {
+struct ProductSearchResponse: Codable, Sendable {
     let data: [Product]
     let count: Int
 }
 
 // MARK: - Route Optimization
 
-struct OptimizedRoute: Codable {
+struct OptimizedRoute: Codable, Sendable {
     let totalCost: Double
+    let totalDistance: Double?
     let stops: [RouteStop]
     let itemsNotFound: [String]
+    let noRoute: Bool?
+    let noRouteReason: String?
 }
 
-struct RouteStop: Codable, Identifiable {
+struct RouteStop: Codable, Identifiable, Equatable, Sendable {
     var id: String { store.id ?? store.name }
     let store: Store
     let items: [RouteItem]
     let subtotal: Double
 }
 
-struct RouteItem: Codable, Identifiable, Hashable {
+struct RouteItem: Codable, Identifiable, Hashable, Sendable {
     var id: String { productId }
     let productId: String
     let name: String

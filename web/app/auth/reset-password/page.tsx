@@ -181,7 +181,7 @@ export default async function ResetPasswordPage({
                     name="password"
                     type="password"
                     required
-                    minLength={6}
+                    minLength={8}
                     autoComplete="new-password"
                     className="nb-input w-full rounded-xl px-3.5 py-2.5 text-[0.88rem]"
                     placeholder="••••••••"
@@ -201,7 +201,7 @@ export default async function ResetPasswordPage({
                     name="confirm_password"
                     type="password"
                     required
-                    minLength={6}
+                    minLength={8}
                     autoComplete="new-password"
                     className="nb-input w-full rounded-xl px-3.5 py-2.5 text-[0.88rem]"
                     placeholder="••••••••"

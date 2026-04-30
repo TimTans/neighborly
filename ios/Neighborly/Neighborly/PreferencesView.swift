@@ -1,4 +1,5 @@
 import SwiftUI
+import Auth
 
 // Added to fix some issue with destination in HomeView
 struct PreferencesView: View {
@@ -11,6 +12,22 @@ struct PreferencesView: View {
     PreferencesView()
 }
 
+
+enum Priority: String, CaseIterable, Identifiable, Codable {
+    case lowestCost = "Lowest Cost"
+    case shortestRoute = "Shortest Route"
+    case fastestTrip = "Fastest Trip"
+    var id: String { rawValue }
+
+    // maps to the backend mode parameter
+    var backendMode: String {
+        switch self {
+        case .lowestCost: return "cost"
+        case .shortestRoute: return "distance"
+        case .fastestTrip: return "stops"
+        }
+    }
+}
 
 enum TransportMode: String, CaseIterable, Identifiable, Codable {
     case walking = "Walking"
@@ -44,19 +61,12 @@ enum TransportMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-enum Priority: String, CaseIterable, Identifiable, Codable {
-    case lowestCost = "Lowest Cost"
-    case shortestRoute = "Shortest Route"
-    case fastestTrip = "Fastest Trip"
-    var id: String { rawValue }
-}
-
 struct Preferences: Equatable, Codable {
     var priority: Priority = .lowestCost
 
     var enabledModes: Set<TransportMode> = [.walking, .publicTransport, .car]
 
-    var maxTravelDistanceMiles: Double = 5
+    var maxTravelDistanceMiles: Double = 10
     var maxStops: Double = 5
 
     var wellnessEnabled: Bool = true
@@ -173,10 +183,29 @@ struct PrimaryButton: View {
 // MARK: - Single Screen
 
 struct PreferencesOneScrollView: View {
-    @Environment(PreferencesStore.self) private var preferencesStore
-    @Environment(\.dismiss) private var dismiss
+    @Environment(AuthController.self) private var authController
+    @AppStorage("optimizationMode")           private var savedPriority: String = Priority.lowestCost.rawValue
+    @AppStorage("maxStops")                   private var savedMaxStops: Int    = 5
+    @AppStorage("maxRadiusMiles")             private var savedMaxRadiusMiles: Double = 10
+    @AppStorage("walkingEnabled")             private var savedWalkingEnabled: Bool = true
+    @AppStorage("publicTransportEnabled")     private var savedPublicTransportEnabled: Bool = true
+    @AppStorage("carEnabled")                 private var savedCarEnabled: Bool = true
+    @AppStorage("wellnessEnabled")            private var savedWellnessEnabled: Bool = true
+    @AppStorage("cholesterolLimit")           private var savedCholesterolLimit: String = ""
+    @AppStorage("sodiumLimit")                private var savedSodiumLimit: String = ""
+    @AppStorage("sugarLimit")                 private var savedSugarLimit: String = ""
+    @AppStorage("dietVegan")                  private var savedDietVegan: Bool = false
+    @AppStorage("dietGlutenFree")             private var savedDietGlutenFree: Bool = true
+    @AppStorage("dietLowCarb")                private var savedDietLowCarb: Bool = false
+    @AppStorage("dietKosher")                 private var savedDietKosher: Bool = false
+    @AppStorage("dietHalal")                  private var savedDietHalal: Bool = false
+    @AppStorage("dietKeto")                   private var savedDietKeto: Bool = false
+    @AppStorage("avoidDairy")                 private var savedAvoidDairy: Bool = false
+    @AppStorage("avoidPeanuts")               private var savedAvoidPeanuts: Bool = true
+    @AppStorage("avoidShellfish")             private var savedAvoidShellfish: Bool = false
+    @AppStorage("avoidWheat")                 private var savedAvoidWheat: Bool = false
     @State private var prefs = Preferences()
-    @State private var hasLoadedPreferences = false
+    @State private var didSave = false
 
     // When true, show the expanded wellness fields (your second screen content)
     @State private var wellnessExpanded: Bool = false
@@ -219,13 +248,25 @@ struct PreferencesOneScrollView: View {
                             .padding(14)
                             .background(cardBackground)
 
-                        // Sliders (simple placeholder; plug your slider UI back in)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Max Travel Distance").foregroundStyle(.secondary)
-                            Slider(value: $prefs.maxTravelDistanceMiles, in: 1...10, step: 1)
+                        // Sliders
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Text("Max Travel Distance").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(prefs.maxTravelDistanceMiles >= 11 ? "Unlimited" : "\(Int(prefs.maxTravelDistanceMiles)) mi")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(prefs.maxTravelDistanceMiles >= 11 ? Color.cyan : Color.secondary)
+                            }
+                            Slider(value: $prefs.maxTravelDistanceMiles, in: 1...11, step: 1)
 
-                            Text("Max Number of Stops").foregroundStyle(.secondary)
-                            Slider(value: $prefs.maxStops, in: 1...10, step: 1)
+                            HStack {
+                                Text("Max Number of Stops").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(prefs.maxStops >= 11 ? "Unlimited" : "\(Int(prefs.maxStops)) stop\(Int(prefs.maxStops) == 1 ? "" : "s")")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(prefs.maxStops >= 11 ? Color.cyan : Color.secondary)
+                            }
+                            Slider(value: $prefs.maxStops, in: 1...11, step: 1)
                         }
                         .padding(14)
                         .background(cardBackground)
@@ -237,9 +278,35 @@ struct PreferencesOneScrollView: View {
                         )
                         .padding(.top, 2)
 
-                        PrimaryButton(title: "Save Preferences") {
-                            preferencesStore.save(prefs)
-                            dismiss()
+                        PrimaryButton(title: didSave ? "Saved ✓" : "Save Preferences") {
+                            savedPriority               = prefs.priority.rawValue
+                            savedMaxStops               = prefs.maxStops >= 11 ? 0 : Int(prefs.maxStops)
+                            savedMaxRadiusMiles         = prefs.maxTravelDistanceMiles >= 11 ? 0.0 : prefs.maxTravelDistanceMiles
+                            savedWalkingEnabled         = prefs.enabledModes.contains(.walking)
+                            savedPublicTransportEnabled = prefs.enabledModes.contains(.publicTransport)
+                            savedCarEnabled             = prefs.enabledModes.contains(.car)
+                            savedWellnessEnabled        = prefs.wellnessEnabled
+                            savedCholesterolLimit       = prefs.cholesterolLimit
+                            savedSodiumLimit            = prefs.sodiumLimit
+                            savedSugarLimit             = prefs.sugarLimit
+                            savedDietVegan              = prefs.dietVegan
+                            savedDietGlutenFree         = prefs.dietGlutenFree
+                            savedDietLowCarb            = prefs.dietLowCarb
+                            savedDietKosher             = prefs.dietKosher
+                            savedDietHalal              = prefs.dietHalal
+                            savedDietKeto               = prefs.dietKeto
+                            savedAvoidDairy             = prefs.avoidDairy
+                            savedAvoidPeanuts           = prefs.avoidPeanuts
+                            savedAvoidShellfish         = prefs.avoidShellfish
+                            savedAvoidWheat             = prefs.avoidWheat
+                            didSave = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                didSave = false
+                            }
+                            if let userId = authController.currentUser?.id.uuidString {
+                                Task { try? await PreferencesService.save(prefs, userId: userId) }
+                            }
                         }
                         .padding(.top, 8)
 
@@ -257,21 +324,68 @@ struct PreferencesOneScrollView: View {
                         }
                     }
                 }
-                .onAppear {
-                    guard !hasLoadedPreferences else { return }
-                    prefs = preferencesStore.preferences
-                    hasLoadedPreferences = true
-                }
 
             }
             .navigationTitle("Your Preferences")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Circle()
-                        .fill(NeighborlyTheme.surfaceSecondary)
-                        .frame(width: 34, height: 34)
+            .onAppear {
+                if let saved = Priority(rawValue: savedPriority) {
+                    prefs.priority = saved
                 }
+                // 0 is the unlimited sentinel (slider shows 11); contract maintained by save button and DB sync
+                prefs.maxStops               = savedMaxStops == 0 ? 11.0 : Double(savedMaxStops)
+                prefs.maxTravelDistanceMiles = savedMaxRadiusMiles == 0.0 ? 11.0 : savedMaxRadiusMiles
+
+                var modes: Set<TransportMode> = []
+                if savedWalkingEnabled           { modes.insert(.walking) }
+                if savedPublicTransportEnabled   { modes.insert(.publicTransport) }
+                if savedCarEnabled               { modes.insert(.car) }
+                prefs.enabledModes = modes
+
+                prefs.wellnessEnabled    = savedWellnessEnabled
+                prefs.cholesterolLimit   = savedCholesterolLimit
+                prefs.sodiumLimit        = savedSodiumLimit
+                prefs.sugarLimit         = savedSugarLimit
+                prefs.dietVegan          = savedDietVegan
+                prefs.dietGlutenFree     = savedDietGlutenFree
+                prefs.dietLowCarb        = savedDietLowCarb
+                prefs.dietKosher         = savedDietKosher
+                prefs.dietHalal          = savedDietHalal
+                prefs.dietKeto           = savedDietKeto
+                prefs.avoidDairy         = savedAvoidDairy
+                prefs.avoidPeanuts       = savedAvoidPeanuts
+                prefs.avoidShellfish     = savedAvoidShellfish
+                prefs.avoidWheat         = savedAvoidWheat
+                // try to fetch from DB; remote wins if online
+                Task {
+                    guard authController.currentUser != nil else { return }
+                    guard let fetched = try? await PreferencesService.fetch() else { return }
+                    prefs = fetched
+                    // keep AppStorage in sync with what came from DB
+                    savedPriority               = fetched.priority.rawValue
+                    savedMaxStops               = fetched.maxStops >= 11 ? 0 : Int(fetched.maxStops)
+                    savedMaxRadiusMiles         = fetched.maxTravelDistanceMiles >= 11 ? 0.0 : fetched.maxTravelDistanceMiles
+                    savedWalkingEnabled         = fetched.enabledModes.contains(.walking)
+                    savedPublicTransportEnabled = fetched.enabledModes.contains(.publicTransport)
+                    savedCarEnabled             = fetched.enabledModes.contains(.car)
+                    savedWellnessEnabled        = fetched.wellnessEnabled
+                    savedCholesterolLimit       = fetched.cholesterolLimit
+                    savedSodiumLimit            = fetched.sodiumLimit
+                    savedSugarLimit             = fetched.sugarLimit
+                    savedDietVegan              = fetched.dietVegan
+                    savedDietGlutenFree         = fetched.dietGlutenFree
+                    savedDietLowCarb            = fetched.dietLowCarb
+                    savedDietKosher             = fetched.dietKosher
+                    savedDietHalal              = fetched.dietHalal
+                    savedDietKeto               = fetched.dietKeto
+                    savedAvoidDairy             = fetched.avoidDairy
+                    savedAvoidPeanuts           = fetched.avoidPeanuts
+                    savedAvoidShellfish         = fetched.avoidShellfish
+                    savedAvoidWheat             = fetched.avoidWheat
+                }
+            }
+            .onChange(of: prefs.priority) { _, newValue in
+                savedPriority = newValue.rawValue
             }
         }
     }
@@ -347,7 +461,7 @@ struct WellnessSection: View {
                         Text("Wellness/Dietary Preferences")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        Image(systemName: prefs.wellnessEnabled ? "chevron.down" : "chevron.up")
                             .foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
@@ -379,38 +493,36 @@ struct WellnessSection: View {
                     text: $prefs.sugarLimit
                 )
 
-                if expanded {
-                    Divider().opacity(0.15)
+                Divider().opacity(0.15)
 
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Diet Type").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Diet Type").foregroundStyle(.secondary)
 
-                        HStack(alignment: .top, spacing: 24) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                CheckRow(title: "Vegan", checked: $prefs.dietVegan)
-                                CheckRow(title: "Gluten-Free", checked: $prefs.dietGlutenFree)
-                                CheckRow(title: "Low Carb", checked: $prefs.dietLowCarb)
-                            }
-                            VStack(alignment: .leading, spacing: 12) {
-                                CheckRow(title: "Kosher", checked: $prefs.dietKosher)
-                                CheckRow(title: "Halal", checked: $prefs.dietHalal)
-                                CheckRow(title: "Keto", checked: $prefs.dietKeto)
-                            }
-                        }
-                    }
-                    .padding(.top, 6)
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Allergens to Avoid").foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
-                            CheckRow(title: "Dairy", checked: $prefs.avoidDairy)
-                            CheckRow(title: "Peanuts", checked: $prefs.avoidPeanuts)
-                            CheckRow(title: "Shellfish", checked: $prefs.avoidShellfish)
-                            CheckRow(title: "Wheat", checked: $prefs.avoidWheat)
+                            CheckRow(title: "Vegan", checked: $prefs.dietVegan)
+                            CheckRow(title: "Gluten-Free", checked: $prefs.dietGlutenFree)
+                            CheckRow(title: "Low Carb", checked: $prefs.dietLowCarb)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            CheckRow(title: "Kosher", checked: $prefs.dietKosher)
+                            CheckRow(title: "Halal", checked: $prefs.dietHalal)
+                            CheckRow(title: "Keto", checked: $prefs.dietKeto)
                         }
                     }
-                    .padding(.top, 6)
                 }
+                .padding(.top, 6)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Allergens to Avoid").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 12) {
+                        CheckRow(title: "Dairy", checked: $prefs.avoidDairy)
+                        CheckRow(title: "Peanuts", checked: $prefs.avoidPeanuts)
+                        CheckRow(title: "Shellfish", checked: $prefs.avoidShellfish)
+                        CheckRow(title: "Wheat", checked: $prefs.avoidWheat)
+                    }
+                }
+                .padding(.top, 6)
             }
         }
         .padding(14)

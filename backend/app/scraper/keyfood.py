@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.scraper.upc import _validate_upc
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,11 +79,6 @@ def _parse_price(price_text: str) -> float | None:
     return None
 
 
-def _extract_upc(raw_upc: str | None) -> str | None:
-    """strip 'UPC-' prefix from marketplace UPC codes."""
-    if raw_upc and raw_upc.startswith("UPC-"):
-        return raw_upc[4:]
-    return raw_upc or None
 
 
 def _extract_brand(name: str) -> tuple[str | None, str]:
@@ -101,6 +98,7 @@ async def _parse_products_from_page(
     store_id: str,
     store_zip: str,
     category: str | None,
+    base_domain: str = "",
 ) -> list[MarketplaceProduct]:
     """extract product data from the current page DOM."""
     scraped_at = datetime.now(timezone.utc).isoformat()
@@ -134,7 +132,7 @@ async def _parse_products_from_page(
             # UPC from hidden form input
             upc_el = await el.query_selector("input.js-key-product-cart-code")
             raw_upc = (await upc_el.get_attribute("value")) if upc_el else None
-            upc = _extract_upc(raw_upc)
+            upc = _validate_upc(raw_upc)
 
             # image. we could skip placeholder "image-coming-soon" images
             # to keep all images (including placeholders), swap the two lines below:
@@ -143,8 +141,10 @@ async def _parse_products_from_page(
             if img_el:
                 src = await img_el.get_attribute("src")
                 if src and "image-coming-soon" not in src:
-                    image_url = src if src.startswith("http") else None
-                # image_url = src if src else None  # keep all images including placeholders
+                    if src.startswith("http"):
+                        image_url = src
+                    elif src.startswith("/"):
+                        image_url = f"{base_domain}{src}"
 
             # sale detection: marketplace uses a "price--was" element for
             # the original price when a product is on sale.
@@ -260,7 +260,7 @@ async def scrape_store(
                 break
 
             products = await _parse_products_from_page(
-                page, store_id, store_zip, category_name,
+                page, store_id, store_zip, category_name, base_domain,
             )
 
             if not products:

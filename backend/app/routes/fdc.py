@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services import fdc as fdc_service
+from app.services.nutrition_service import lookup_by_upc
 
 router = APIRouter(prefix="/fdc", tags=["fdc"])
 
@@ -46,3 +47,18 @@ class BulkFoodRequest(BaseModel):
 async def get_foods_bulk(body: BulkFoodRequest):
     """fetch nutrition details for multiple foods in one request."""
     return await fdc_service.get_foods_bulk(body.fdc_ids)
+
+
+@router.get("/lookup")
+async def lookup_by_upc_route(
+    upc: str = Query(..., description="product UPC/GTIN to look up in FDC"),
+):
+    """
+    look up a product's nutrition data from FDC by UPC/GTIN.
+    returns normalized nutrition dict or 404 if not found.
+    used as a fallback for products not yet enriched in product_nutrition.
+    """
+    result = await lookup_by_upc(upc)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"no FDC match for upc {upc}")
+    return result
