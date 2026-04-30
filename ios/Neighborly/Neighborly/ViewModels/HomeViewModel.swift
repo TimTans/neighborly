@@ -26,6 +26,12 @@ struct HomeRouteStop: Identifiable {
 
 @Observable
 final class HomeViewModel {
+    var featuredRecipe: RecipeSuggestion?
+    var isLoadingRecipe = false
+    var recipeError: String?
+
+    private var lastRecipeRequest: RecipeRequestPayload?
+
     let userName: String = "John Doe"
     let savingsThisTrip: String = "6.70"
     let totalBudget: String = "$120.00"
@@ -46,4 +52,24 @@ final class HomeViewModel {
         HomeRouteStop(index: 2, name: "Trader Joe's", address: "130 Court St", distance: "1.2 mi", timeEstimate: "8 min", itemsLabel: "4 items"),
         HomeRouteStop(index: 3, name: "Costco", address: "976 3rd Ave", distance: "2.4 mi", timeEstimate: "15 min", itemsLabel: "2 items")
     ]
+
+    func loadRecipe(using preferences: Preferences, force: Bool = false) async {
+        let payload = preferences.recipeRequestPayload
+        guard force || payload != lastRecipeRequest || featuredRecipe == nil else {
+            return
+        }
+
+        isLoadingRecipe = true
+        recipeError = nil
+        lastRecipeRequest = payload
+
+        do {
+            featuredRecipe = try await APIService.generateRecipe(preferences: preferences)
+        } catch {
+            featuredRecipe = nil
+            recipeError = error.localizedDescription
+        }
+
+        isLoadingRecipe = false
+    }
 }

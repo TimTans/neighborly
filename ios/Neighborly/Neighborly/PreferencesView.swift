@@ -1,9 +1,5 @@
 import SwiftUI
 
-// MARK: - Model
-
-import SwiftUI
-
 // Added to fix some issue with destination in HomeView
 struct PreferencesView: View {
     var body: some View {
@@ -16,14 +12,7 @@ struct PreferencesView: View {
 }
 
 
-enum Priority: String, CaseIterable, Identifiable {
-    case lowestCost = "Lowest Cost"
-    case shortestRoute = "Shortest Route"
-    case fastestTrip = "Fastest Trip"
-    var id: String { rawValue }
-}
-
-enum TransportMode: String, CaseIterable, Identifiable {
+enum TransportMode: String, CaseIterable, Identifiable, Codable {
     case walking = "Walking"
     case publicTransport = "Public Transport"
     case car = "Car"
@@ -55,7 +44,14 @@ enum TransportMode: String, CaseIterable, Identifiable {
     }
 }
 
-struct Preferences: Equatable {
+enum Priority: String, CaseIterable, Identifiable, Codable {
+    case lowestCost = "Lowest Cost"
+    case shortestRoute = "Shortest Route"
+    case fastestTrip = "Fastest Trip"
+    var id: String { rawValue }
+}
+
+struct Preferences: Equatable, Codable {
     var priority: Priority = .lowestCost
 
     var enabledModes: Set<TransportMode> = [.walking, .publicTransport, .car]
@@ -175,7 +171,10 @@ struct PrimaryButton: View {
 // MARK: - Single Screen
 
 struct PreferencesOneScrollView: View {
+    @Environment(PreferencesStore.self) private var preferencesStore
+    @Environment(\.dismiss) private var dismiss
     @State private var prefs = Preferences()
+    @State private var hasLoadedPreferences = false
 
     // When true, show the expanded wellness fields (your second screen content)
     @State private var wellnessExpanded: Bool = false
@@ -237,7 +236,8 @@ struct PreferencesOneScrollView: View {
                         .padding(.top, 2)
 
                         PrimaryButton(title: "Save Preferences") {
-                            print("Saved:", prefs)
+                            preferencesStore.save(prefs)
+                            dismiss()
                         }
                         .padding(.top, 8)
 
@@ -254,6 +254,11 @@ struct PreferencesOneScrollView: View {
                             wellnessExpanded = true
                         }
                     }
+                }
+                .onAppear {
+                    guard !hasLoadedPreferences else { return }
+                    prefs = preferencesStore.preferences
+                    hasLoadedPreferences = true
                 }
 
             }
@@ -420,4 +425,3 @@ struct WellnessSection: View {
 #Preview {
     PreferencesOneScrollView()
 }
-
