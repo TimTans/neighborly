@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import ImportModal from "./components/ImportModal";
 import PaginationControls from "./components/PaginationControls";
 import ProductModal, { type NewProductFormValues } from "./components/ProductModal";
 import ReviewsTab from "./components/ReviewsTab";
@@ -59,6 +60,7 @@ const VendorDashboard: React.FC = () => {
   const [storeFormError, setStoreFormError] = useState<string | null>(null);
   const [savingStore, setSavingStore] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
@@ -336,6 +338,10 @@ const VendorDashboard: React.FC = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  const handleImportComplete = useCallback(async () => {
+    await refreshProducts();
+  }, [refreshProducts]);
 
   const openStoreInfoModal = () => {
     setStoreForm({
@@ -716,6 +722,12 @@ const VendorDashboard: React.FC = () => {
                 className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Export
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors"
+              >
+                Import
               </button>
               <button onClick={openModal} className="bg-green-800 text-white border-none px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-900 transition-colors">
                 + Add Product
@@ -1112,6 +1124,18 @@ const VendorDashboard: React.FC = () => {
           newProduct={newProduct}
           setNewProduct={setNewProduct}
           createNewProduct={createNewProduct}
+          onBulkImport={() => {
+            closeModal();
+            setShowImportModal(true);
+          }}
+        />
+      )}
+
+      {/* IMPORT MODAL */}
+      {showImportModal && (
+        <ImportModal
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={handleImportComplete}
         />
       )}
 
