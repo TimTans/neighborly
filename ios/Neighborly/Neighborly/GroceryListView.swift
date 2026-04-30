@@ -581,7 +581,7 @@ struct ItemDetailSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Capsule()
-                .fill(Color.gray.opacity(0.3))
+                .fill(NeighborlyTheme.border.opacity(0.75))
                 .frame(width: 36, height: 5)
                 .padding(.top, 10)
 
@@ -731,7 +731,7 @@ struct ProductDetailSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Capsule()
-                .fill(Color.gray.opacity(0.3))
+                .fill(NeighborlyTheme.border.opacity(0.75))
                 .frame(width: 36, height: 5)
                 .padding(.top, 10)
 

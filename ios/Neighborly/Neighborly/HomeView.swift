@@ -79,7 +79,7 @@ struct HomeView: View {
             // Notification bell
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(0.65))
+                    .fill(NeighborlyTheme.surfaceSecondary.opacity(0.92))
                     .frame(width: 44, height: 44)
                     .overlay(
                         Image(systemName: "bell")
@@ -193,7 +193,7 @@ struct HomeView: View {
                     }
                     .foregroundStyle(Color(red: 0.17, green: 0.42, blue: 0.30))
                     .padding(.vertical, 16)
-                    .background(Color.white)
+                    .background(NeighborlyTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                 }
                 .padding(.top, 4)
