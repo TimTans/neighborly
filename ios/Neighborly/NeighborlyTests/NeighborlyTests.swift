@@ -9,28 +9,35 @@ import XCTest
 @testable import Neighborly
 
 final class NeighborlyTests: XCTestCase {
+    func testRecipeRequestPayloadMapsPreferences() throws {
+        var preferences = Preferences()
+        preferences.wellnessEnabled = true
+        preferences.dietVegan = true
+        preferences.dietGlutenFree = true
+        preferences.avoidDairy = true
+        preferences.sodiumLimit = "1500 mg/day"
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+        let payload = preferences.recipeRequestPayload
+
+        XCTAssertEqual(payload.dietaryPreferences, ["vegan", "gluten_free"])
+        XCTAssertEqual(payload.avoidIngredients, ["dairy", "peanuts"])
+        XCTAssertEqual(payload.nutritionTargets?.sodium, "1500 mg/day")
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+    func testPreferencesStorePersistsPreferences() throws {
+        let suiteName = "NeighborlyTests.PreferencesStore"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-    }
+        let store = PreferencesStore(defaults: defaults)
+        var preferences = Preferences()
+        preferences.dietVegan = true
+        preferences.sodiumLimit = "1200 mg/day"
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
-    }
+        store.save(preferences)
 
+        let reloaded = PreferencesStore(defaults: defaults)
+        XCTAssertTrue(reloaded.preferences.dietVegan)
+        XCTAssertEqual(reloaded.preferences.sodiumLimit, "1200 mg/day")
+    }
 }
