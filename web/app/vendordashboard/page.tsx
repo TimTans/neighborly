@@ -1,5 +1,6 @@
 ﻿"use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ImportModal from "./components/ImportModal";
 import PaginationControls from "./components/PaginationControls";
@@ -61,6 +62,7 @@ const VendorDashboard: React.FC = () => {
   const [savingStore, setSavingStore] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"search" | "create">("search");
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
@@ -82,6 +84,7 @@ const VendorDashboard: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const priceInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   /* ── Pagination state ── */
   const [productsPerPage, setProductsPerPage] = useState(10);
@@ -126,6 +129,28 @@ const VendorDashboard: React.FC = () => {
       searchInputRef.current.focus();
     }
   }, [showProductModal, modalMode]);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExportMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [exportMenuOpen]);
 
   /* ── Catalog search with debounce ── */
   useEffect(() => {
@@ -285,7 +310,7 @@ const VendorDashboard: React.FC = () => {
     setHistoryOpen(storeProductId);
   };
 
-  const exportInventory = () => {
+  const exportInventory = (format: "csv" | "xlsx") => {
     if (!storeProducts.length) return;
 
     const headers = [
@@ -316,16 +341,24 @@ const VendorDashboard: React.FC = () => {
       p.product_id,
     ]);
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map(csvEscape).join(","))
-      .join("\r\n");
-
     const dateStamp = new Date().toISOString().slice(0, 10);
     const safeStoreName =
       (store?.name || "store")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "") || "store";
+
+    if (format === "xlsx") {
+      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
+      XLSX.writeFile(workbook, `${safeStoreName}-inventory-${dateStamp}.xlsx`);
+      return;
+    }
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map(csvEscape).join(","))
+      .join("\r\n");
     const fileName = `${safeStoreName}-inventory-${dateStamp}.csv`;
 
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
@@ -716,13 +749,55 @@ const VendorDashboard: React.FC = () => {
               Product Inventory
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={exportInventory}
-                disabled={!storeProducts.length}
-                className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Export
-              </button>
+              <div ref={exportMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                  disabled={!storeProducts.length}
+                  aria-haspopup="menu"
+                  aria-expanded={exportMenuOpen}
+                  className="inline-flex items-center gap-1.5 border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Export
+                  <svg className={`transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                </button>
+                {exportMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-9 z-30 w-36 overflow-hidden rounded-xl border border-stone-100 bg-white shadow-xl"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        exportInventory("csv");
+                        setExportMenuOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 border-none bg-white px-3.5 py-2 text-left text-xs font-semibold text-stone-700 cursor-pointer hover:bg-green-50 hover:text-green-800 transition-colors"
+                    >
+                      CSV
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        exportInventory("xlsx");
+                        setExportMenuOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 border-none bg-white px-3.5 py-2 text-left text-xs font-semibold text-stone-700 cursor-pointer hover:bg-green-50 hover:text-green-800 transition-colors"
+                    >
+                      XLSX
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setShowImportModal(true)}
                 className="border border-green-800 text-green-800 bg-transparent px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-green-50 transition-colors"
