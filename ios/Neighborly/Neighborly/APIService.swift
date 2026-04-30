@@ -107,4 +107,23 @@ enum APIService {
 
         return try decoder.decode([Product].self, from: data)
     }
+
+    static func generateRecipe(preferences: Preferences) async throws -> RecipeSuggestion {
+        let url = AppConfig.apiBaseURL
+            .appendingPathComponent("recipes")
+            .appendingPathComponent("generate")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(preferences.recipeRequestPayload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.serverError(statusCode: http.statusCode)
+        }
+
+        return try decoder.decode(RecipeSuggestion.self, from: data)
+    }
 }
