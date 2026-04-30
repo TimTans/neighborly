@@ -37,6 +37,7 @@ interface ProductModalProps {
   newProduct: NewProductFormValues;
   setNewProduct: Dispatch<SetStateAction<NewProductFormValues>>;
   createNewProduct: () => void;
+  onBulkImport: () => void;
 }
 
 const ProductModal = ({
@@ -63,6 +64,7 @@ const ProductModal = ({
   newProduct,
   setNewProduct,
   createNewProduct,
+  onBulkImport,
 }: ProductModalProps) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeModal}>
@@ -119,6 +121,12 @@ const ProductModal = ({
                 }`}
             >
               Create New
+            </button>
+            <button
+              onClick={onBulkImport}
+              className="flex-1 py-2 rounded-full text-sm font-medium transition-all duration-200 border-none cursor-pointer bg-transparent text-stone-500 hover:text-stone-700"
+            >
+              Bulk Import
             </button>
           </div>
         </div>

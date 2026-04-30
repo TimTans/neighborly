@@ -45,3 +45,33 @@ export interface CatalogProduct {
   category: string;
   unit_size: string;
 }
+
+export type ImportRowStatus = "pending" | "update" | "add" | "create" | "unchanged" | "error";
+
+export interface ImportRow {
+  name: string;
+  brand: string;
+  category: string;
+  unitSize: string;
+  price: string;
+  salePrice: string;
+  inStock: string;
+  catalogProductId: string;
+  parsedPrice: number | null;
+  parsedSalePrice: number | null;
+  parsedInStock: boolean;
+  status: ImportRowStatus;
+  error: string | null;
+  matchedProductId: string | null;
+  storeProductId: string | null;
+  currentPrice: number | null;
+  currentSalePrice: number | null;
+  currentInStock: boolean | null;
+}
+
+export interface ImportResult {
+  updated: number;
+  added: number;
+  created: number;
+  failed: Array<{ rowIndex: number; reason: string }>;
+}
