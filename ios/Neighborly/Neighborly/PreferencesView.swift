@@ -13,13 +13,13 @@ struct PreferencesView: View {
 }
 
 
-enum Priority: String, CaseIterable, Identifiable {
+enum Priority: String, CaseIterable, Identifiable, Codable {
     case lowestCost = "Lowest Cost"
     case shortestRoute = "Shortest Route"
     case fastestTrip = "Fastest Trip"
     var id: String { rawValue }
 
-    /// maps to the backend mode parameter
+    // maps to the backend mode parameter
     var backendMode: String {
         switch self {
         case .lowestCost: return "cost"
@@ -29,7 +29,7 @@ enum Priority: String, CaseIterable, Identifiable {
     }
 }
 
-enum TransportMode: String, CaseIterable, Identifiable {
+enum TransportMode: String, CaseIterable, Identifiable, Codable {
     case walking = "Walking"
     case publicTransport = "Public Transport"
     case car = "Car"
@@ -61,7 +61,7 @@ enum TransportMode: String, CaseIterable, Identifiable {
     }
 }
 
-struct Preferences: Equatable {
+struct Preferences: Equatable, Codable {
     var priority: Priority = .lowestCost
 
     var enabledModes: Set<TransportMode> = [.walking, .publicTransport, .car]
@@ -122,16 +122,18 @@ struct LabeledTextField: View {
             Text(title).foregroundStyle(.secondary)
 
             TextField(placeholder, text: $text)
+                .foregroundStyle(NeighborlyTheme.textPrimary)
+                .tint(NeighborlyTheme.green)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.gray.opacity(0.08))
+                        .fill(NeighborlyTheme.fieldBackground)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        .stroke(NeighborlyTheme.border.opacity(0.6), lineWidth: 1)
                 )
         }
     }
@@ -171,7 +173,7 @@ struct PrimaryButton: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.cyan)
+                        .fill(NeighborlyTheme.green)
                 )
         }
         .buttonStyle(.plain)
@@ -214,7 +216,7 @@ struct PreferencesOneScrollView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground).ignoresSafeArea()
+                NeighborlyTheme.background.ignoresSafeArea()
 
                 ScrollView {
                     // Track scroll offset
@@ -390,7 +392,7 @@ struct PreferencesOneScrollView: View {
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(Color.white)
+            .fill(NeighborlyTheme.surface)
             .shadow(color: .black.opacity(0.03), radius: 10, x: 0, y: 5)
     }
 }
@@ -425,13 +427,13 @@ struct TransportModeSelector: View {
                         .padding(.vertical, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(isSelected ? Color.cyan.opacity(0.15) : Color.gray.opacity(0.08))
+                                .fill(isSelected ? NeighborlyTheme.greenSoft : NeighborlyTheme.surfaceSecondary)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(isSelected ? Color.cyan : Color.clear, lineWidth: 1.5)
+                                .stroke(isSelected ? NeighborlyTheme.green : NeighborlyTheme.border.opacity(0.45), lineWidth: 1.5)
                         )
-                        .foregroundStyle(isSelected ? Color.cyan : Color.secondary)
+                        .foregroundStyle(isSelected ? NeighborlyTheme.green : NeighborlyTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -526,7 +528,7 @@ struct WellnessSection: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white)
+                .fill(NeighborlyTheme.surface)
                 .shadow(color: .black.opacity(0.03), radius: 10, x: 0, y: 5)
         )
     }
@@ -537,4 +539,3 @@ struct WellnessSection: View {
 #Preview {
     PreferencesOneScrollView()
 }
-

@@ -4,11 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.example.android.ui.AppScaffold
+import com.example.android.ui.theme.NeighborlyTheme
 import com.example.android.ui.login.LoginScreen
 import com.example.android.viewmodel.home.HomeViewModel
 import com.example.android.viewmodel.login.LoginViewModel
@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            NeighborlyTheme {
                 Surface {
                     val loginState by loginViewModel.uiState.collectAsState()
                     if (loginState.isLoggedIn) {

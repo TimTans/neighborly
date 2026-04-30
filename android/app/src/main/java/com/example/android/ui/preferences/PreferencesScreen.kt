@@ -42,16 +42,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.android.viewmodel.shopper.OptimizationPriority
-import com.example.android.viewmodel.shopper.PreferenceState
+import com.example.android.data.repository.preferences.OptimizationPriority
+import com.example.android.data.repository.preferences.PreferenceState
+import com.example.android.data.repository.preferences.TransportMode
+import com.example.android.ui.theme.NeighborlyColors
+import com.example.android.ui.theme.NeighborlyShapes
+import com.example.android.ui.theme.NeighborlySpacing
 import com.example.android.viewmodel.shopper.ShopperViewModel
-import com.example.android.viewmodel.shopper.TransportMode
-
-private val NeighborlyBackground = Color(0xFFF7F3EC)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
-private val NeighborlyBlue = Color(0xFF1E63C6)
-private val NeighborlyBlueSoft = Color(0xFFE7F0FF)
 
 @Composable
 fun PreferencesScreen(
@@ -61,13 +58,16 @@ fun PreferencesScreen(
 ) {
     val prefs = shopperViewModel.uiState.preferences
 
-    Surface(modifier = modifier.fillMaxSize(), color = NeighborlyBackground) {
+    Surface(modifier = modifier.fillMaxSize(), color = NeighborlyColors.Background) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(
+                    horizontal = NeighborlySpacing.ScreenHorizontal,
+                    vertical = NeighborlySpacing.ScreenVertical
+                ),
+            verticalArrangement = Arrangement.spacedBy(NeighborlySpacing.CardGap)
         ) {
             Row(
                 modifier = Modifier
@@ -80,9 +80,9 @@ fun PreferencesScreen(
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = NeighborlyBlue
+                    tint = NeighborlyColors.Blue
                 )
-                Text("Back", style = MaterialTheme.typography.bodyLarge, color = NeighborlyBlue)
+                Text("Back", style = MaterialTheme.typography.bodyLarge, color = NeighborlyColors.Blue)
             }
 
             Text(
@@ -114,9 +114,9 @@ fun PreferencesScreen(
                     valueRange = 1f..10f,
                     steps = 8,
                     colors = SliderDefaults.colors(
-                        thumbColor = NeighborlyBlue,
-                        activeTrackColor = NeighborlyBlue,
-                        inactiveTrackColor = NeighborlyBlueSoft
+                        thumbColor = NeighborlyColors.Blue,
+                        activeTrackColor = NeighborlyColors.Blue,
+                        inactiveTrackColor = NeighborlyColors.BlueSoft
                     )
                 )
 
@@ -127,9 +127,9 @@ fun PreferencesScreen(
                     valueRange = 1f..10f,
                     steps = 8,
                     colors = SliderDefaults.colors(
-                        thumbColor = NeighborlyGreen,
-                        activeTrackColor = NeighborlyGreen,
-                        inactiveTrackColor = NeighborlyGreenSoft
+                        thumbColor = NeighborlyColors.Green,
+                        activeTrackColor = NeighborlyColors.Green,
+                        inactiveTrackColor = NeighborlyColors.GreenSoft
                     )
                 )
             }
@@ -180,18 +180,18 @@ fun PreferencesScreen(
 @Composable
 private fun PreferenceCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = NeighborlyShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = NeighborlyColors.Surface),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(NeighborlySpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(NeighborlySpacing.CardGap),
             content = {
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = NeighborlyGreen
+                    color = NeighborlyColors.Green
                 )
                 content()
             }
@@ -210,7 +210,7 @@ private fun PriorityDropdown(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFFF8F8F8), RoundedCornerShape(14.dp))
+                .background(NeighborlyColors.FieldBackground, NeighborlyShapes.Medium)
                 .clickable { expanded = true }
                 .padding(horizontal = 14.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -220,7 +220,7 @@ private fun PriorityDropdown(
             Icon(
                 Icons.Filled.ArrowDropDown,
                 contentDescription = "Open prioritize menu",
-                tint = NeighborlyBlue
+                tint = NeighborlyColors.Blue
             )
         }
 
@@ -257,9 +257,9 @@ private fun TransportationModeRow(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (prefs.enabledModes.contains(mode)) {
-                        NeighborlyBlueSoft
+                        NeighborlyColors.BlueSoft
                     } else {
-                        Color(0xFFF8F8F8)
+                        NeighborlyColors.FieldBackground
                     }
                 )
             ) {
@@ -279,16 +279,20 @@ private fun TransportationModeRow(
                         text = mode.label,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                         textAlign = TextAlign.Center,
-                        color = if (prefs.enabledModes.contains(mode)) NeighborlyBlue else Color(0xFF1A1A1A)
+                        color = if (prefs.enabledModes.contains(mode)) {
+                            NeighborlyColors.Blue
+                        } else {
+                            NeighborlyColors.TextPrimary
+                        }
                     )
                     Switch(
                         checked = prefs.enabledModes.contains(mode),
                         onCheckedChange = { onToggleMode(mode) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = NeighborlyBlue,
+                            checkedTrackColor = NeighborlyColors.Blue,
                             uncheckedThumbColor = Color.White,
-                            uncheckedTrackColor = Color(0xFFD8D8D8)
+                            uncheckedTrackColor = NeighborlyColors.MutedControl
                         )
                     )
                 }
@@ -310,9 +314,9 @@ private fun ToggleRow(title: String, checked: Boolean, onToggle: () -> Unit) {
             onCheckedChange = { onToggle() },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = NeighborlyGreen,
+                checkedTrackColor = NeighborlyColors.Green,
                 uncheckedThumbColor = Color.White,
-                uncheckedTrackColor = Color(0xFFD8D8D8)
+                uncheckedTrackColor = NeighborlyColors.MutedControl
             )
         )
     }
@@ -347,10 +351,10 @@ private fun WellnessField(
             placeholder = { Text(placeholder) },
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NeighborlyBlue,
-                unfocusedBorderColor = Color(0xFFD7D7D7),
-                cursorColor = NeighborlyBlue,
-                focusedLabelColor = NeighborlyBlue
+                focusedBorderColor = NeighborlyColors.Blue,
+                unfocusedBorderColor = NeighborlyColors.Border,
+                cursorColor = NeighborlyColors.Blue,
+                focusedLabelColor = NeighborlyColors.Blue
             )
         )
     }

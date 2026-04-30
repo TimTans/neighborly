@@ -5,6 +5,7 @@ import MapboxMaps
 @main
 struct NeighborlyApp: App {
     @State private var authController = AuthController()
+    @State private var preferencesStore = PreferencesStore()
 
     init() {
         let token = AppConfig.mapboxAccessToken
@@ -25,6 +26,7 @@ struct NeighborlyApp: App {
                 }
             }
             .environment(authController)
+            .environment(preferencesStore)
             .task {
                 await authController.listenForAuthChanges()
             }

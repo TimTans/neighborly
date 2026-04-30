@@ -3,8 +3,10 @@ import Auth
 
 struct HomeView: View {
     @Environment(AuthController.self) private var authController
+    @Environment(PreferencesStore.self) private var preferencesStore
     @State private var viewModel = HomeViewModel()
     @State private var showPreferences = false
+    @State private var selectedRecipe: RecipeSuggestion?
 
     private var displayName: String {
         let user = authController.currentUser
@@ -30,6 +32,7 @@ struct HomeView: View {
                 VStack(spacing: 18) {
                     homeTopBar
                     heroCard
+                    featuredRecipeCard
                     metricsGrid
                     optimizedRouteCard
                 }
@@ -40,6 +43,12 @@ struct HomeView: View {
             .background(NeighborlyTheme.background.ignoresSafeArea())
             .navigationDestination(isPresented: $showPreferences) {
                 PreferencesView()
+            }
+            .navigationDestination(item: $selectedRecipe) { recipe in
+                RecipeDetailView(recipe: recipe)
+            }
+            .task(id: preferencesStore.preferences) {
+                await viewModel.loadRecipe(using: preferencesStore.preferences)
             }
         }
     }
@@ -79,7 +88,7 @@ struct HomeView: View {
             // Notification bell
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(0.65))
+                    .fill(NeighborlyTheme.surfaceSecondary.opacity(0.92))
                     .frame(width: 44, height: 44)
                     .overlay(
                         Image(systemName: "bell")
@@ -193,7 +202,7 @@ struct HomeView: View {
                     }
                     .foregroundStyle(Color(red: 0.17, green: 0.42, blue: 0.30))
                     .padding(.vertical, 16)
-                    .background(Color.white)
+                    .background(NeighborlyTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                 }
                 .padding(.top, 4)
@@ -203,6 +212,146 @@ struct HomeView: View {
     }
 
     // MARK: - Metrics Grid
+
+    private var featuredRecipeCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("RECIPE FOR YOU", systemImage: "sparkles")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(NeighborlyTheme.orange)
+
+                Spacer()
+
+                Button {
+                    Task {
+                        await viewModel.loadRecipe(
+                            using: preferencesStore.preferences,
+                            force: true
+                        )
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if viewModel.isLoadingRecipe {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(NeighborlyTheme.orange)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+
+                        Text(viewModel.isLoadingRecipe ? "Refreshing" : "New")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundStyle(NeighborlyTheme.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(NeighborlyTheme.orangeSoft)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLoadingRecipe)
+            }
+
+            if let recipe = viewModel.featuredRecipe {
+                Button {
+                    selectedRecipe = recipe
+                } label: {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(recipe.title)
+                            .font(.system(size: 24, weight: .heavy, design: .serif))
+                            .foregroundStyle(NeighborlyTheme.textPrimary)
+                            .multilineTextAlignment(.leading)
+
+                        Text(recipe.summary)
+                            .font(.system(size: 15))
+                            .foregroundStyle(NeighborlyTheme.textSecondary)
+                            .multilineTextAlignment(.leading)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(recipe.whyItMatches.prefix(3).enumerated()), id: \.offset) { _, reason in
+                                reasonCard(reason)
+                            }
+                        }
+
+                        HStack {
+                            Text("\(recipe.prepMinutes + recipe.cookMinutes) min total")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(NeighborlyTheme.textMuted)
+
+                            Spacer()
+
+                            Label("Open recipe", systemImage: "arrow.right.circle.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(NeighborlyTheme.orange)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            } else if let recipeError = viewModel.recipeError {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("We couldn't generate a recipe right now.")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+
+                    Text(recipeError)
+                        .font(.system(size: 14))
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+
+                    Button {
+                        Task {
+                            await viewModel.loadRecipe(
+                                using: preferencesStore.preferences,
+                                force: true
+                            )
+                        }
+                    } label: {
+                        Text("Try Again")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(NeighborlyTheme.orange)
+                            .clipShape(Capsule())
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Generating a recipe that fits your current preferences.")
+                        .font(.system(size: 15))
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+
+                    ProgressView()
+                        .tint(NeighborlyTheme.orange)
+                }
+            }
+        }
+        .padding(20)
+        .background(NeighborlyTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+    }
+
+    private func reasonCard(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(NeighborlyTheme.green)
+
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(NeighborlyTheme.green)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NeighborlyTheme.greenSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
 
     private var metricsGrid: some View {
         VStack(spacing: 12) {
