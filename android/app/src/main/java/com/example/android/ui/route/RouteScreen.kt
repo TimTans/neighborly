@@ -288,6 +288,7 @@ private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Uni
 
 @Composable
 private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
+    // TODO(S1.7): render ProductImage here once RouteStopItem carries imageUrl/categorySlug.
     Row(
         modifier = Modifier
             .fillMaxWidth()

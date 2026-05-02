@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.android.ui.components.ProductImage
 import com.example.android.viewmodel.shopper.CatalogProduct
 import com.example.android.viewmodel.shopper.GroceryListItemUi
 import com.example.android.viewmodel.shopper.ShopperViewModel
@@ -244,7 +245,11 @@ private fun SearchResultRow(product: CatalogProduct, onAdd: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Filled.AddCircle, contentDescription = null, tint = NeighborlyGreen)
+        ProductImage(
+            imageUrl = product.imageUrl,
+            contentDescription = product.name,
+            fallbackEmoji = product.categoryEmoji
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(product.name, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF1A1A1A))
             Text(
@@ -280,6 +285,11 @@ private fun GroceryItemCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // GroceryListItemRecord has no imageUrl/category yet; falls back to default emoji.
+            ProductImage(
+                imageUrl = null,
+                contentDescription = item.name
+            )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(item.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
                 Text(item.unitSize, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
