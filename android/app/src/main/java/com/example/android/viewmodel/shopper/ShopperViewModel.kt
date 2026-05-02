@@ -6,10 +6,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.android.data.api.KtorNeighborlyApi
+import com.example.android.data.api.NeighborlyApi
 import com.example.android.data.connectivity.NetworkMonitor
 import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
+import com.example.android.data.model.Product
 import com.example.android.data.repository.GroceryListRepository
 import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.data.repository.preferences.OptimizationPriority
@@ -55,7 +58,12 @@ data class ShopperUiState(
     val searchError: String? = null,
     val isRefreshingPrices: Boolean = false,
     val refreshError: String? = null,
-    val preferences: PreferenceState = PreferenceState()
+    val preferences: PreferenceState = PreferenceState(),
+    val productSheet: GroceryProductSummary? = null,
+    val itemSheet: GroceryListItemRecord? = null,
+    val sheetProduct: Product? = null,
+    val isLoadingSheetProduct: Boolean = false,
+    val sheetProductError: String? = null
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -69,12 +77,14 @@ class ShopperViewModel @JvmOverloads constructor(
     private val preferenceRepository: PreferenceRepository = SharedPreferencesPreferenceRepository(
         application.applicationContext
     ),
-    private val networkMonitor: NetworkMonitor? = null
+    private val networkMonitor: NetworkMonitor? = null,
+    private val api: NeighborlyApi = KtorNeighborlyApi()
 ) : AndroidViewModel(application) {
     var uiState by mutableStateOf(ShopperUiState())
         private set
 
     private var searchJob: Job? = null
+    private var sheetProductJob: Job? = null
 
     init {
         uiState = uiState.copy(groceryList = groceryListRepository.loadItems().toUiItems())
@@ -160,15 +170,122 @@ class ShopperViewModel @JvmOverloads constructor(
     }
 
     fun incrementItem(id: String) {
-        uiState = uiState.copy(groceryList = groceryListRepository.incrementItem(id).toUiItems())
+        val updated = groceryListRepository.incrementItem(id)
+        uiState = uiState.copy(
+            groceryList = updated.toUiItems(),
+            itemSheet = uiState.itemSheet?.let { current ->
+                if (current.id == id) updated.firstOrNull { it.id == id } else current
+            }
+        )
     }
 
     fun decrementItem(id: String) {
-        uiState = uiState.copy(groceryList = groceryListRepository.decrementItem(id).toUiItems())
+        val updated = groceryListRepository.decrementItem(id)
+        val nextItemSheet = uiState.itemSheet?.let { current ->
+            if (current.id == id) updated.firstOrNull { it.id == id } else current
+        }
+        uiState = uiState.copy(
+            groceryList = updated.toUiItems(),
+            itemSheet = nextItemSheet
+        )
     }
 
     fun deleteItem(id: String) {
-        uiState = uiState.copy(groceryList = groceryListRepository.deleteItem(id).toUiItems())
+        val updated = groceryListRepository.deleteItem(id)
+        val nextItemSheet = uiState.itemSheet?.takeIf { it.id != id }
+        uiState = uiState.copy(
+            groceryList = updated.toUiItems(),
+            itemSheet = nextItemSheet
+        )
+    }
+
+    fun showProductSheet(summary: GroceryProductSummary) {
+        sheetProductJob?.cancel()
+        uiState = uiState.copy(
+            productSheet = summary,
+            itemSheet = null,
+            sheetProduct = null,
+            sheetProductError = null,
+            isLoadingSheetProduct = false
+        )
+        loadSheetProduct(summary.productId)
+    }
+
+    fun dismissProductSheet() {
+        sheetProductJob?.cancel()
+        uiState = uiState.copy(
+            productSheet = null,
+            sheetProduct = null,
+            isLoadingSheetProduct = false,
+            sheetProductError = null
+        )
+    }
+
+    fun showItemSheet(item: GroceryListItemRecord) {
+        sheetProductJob?.cancel()
+        uiState = uiState.copy(
+            itemSheet = item,
+            productSheet = null,
+            sheetProduct = null,
+            sheetProductError = null,
+            isLoadingSheetProduct = false
+        )
+        loadSheetProduct(item.productId)
+    }
+
+    fun dismissItemSheet() {
+        sheetProductJob?.cancel()
+        uiState = uiState.copy(
+            itemSheet = null,
+            sheetProduct = null,
+            isLoadingSheetProduct = false,
+            sheetProductError = null
+        )
+    }
+
+    fun addFromProductSheet() {
+        val summary = uiState.productSheet ?: return
+        val updatedItems = groceryListRepository.addOrIncrement(summary)
+        uiState = uiState.copy(
+            groceryList = updatedItems.toUiItems(),
+            searchQuery = "",
+            searchResults = emptyList(),
+            isSearchLoading = false,
+            searchError = null,
+            productSheet = null,
+            sheetProduct = null,
+            isLoadingSheetProduct = false,
+            sheetProductError = null
+        )
+    }
+
+    private fun loadSheetProduct(productId: String?) {
+        if (productId.isNullOrBlank()) return
+        uiState = uiState.copy(isLoadingSheetProduct = true, sheetProductError = null)
+        sheetProductJob = viewModelScope.launch {
+            api.getProduct(productId)
+                .onSuccess { product ->
+                    if (uiState.productSheet?.productId == productId ||
+                        uiState.itemSheet?.productId == productId
+                    ) {
+                        uiState = uiState.copy(
+                            sheetProduct = product,
+                            isLoadingSheetProduct = false,
+                            sheetProductError = null
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (uiState.productSheet?.productId == productId ||
+                        uiState.itemSheet?.productId == productId
+                    ) {
+                        uiState = uiState.copy(
+                            isLoadingSheetProduct = false,
+                            sheetProductError = error.message ?: "Unable to load product details."
+                        )
+                    }
+                }
+        }
     }
 
     fun refreshPrices() {

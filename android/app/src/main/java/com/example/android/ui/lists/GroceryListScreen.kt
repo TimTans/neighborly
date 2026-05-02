@@ -29,14 +29,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.android.data.local.GroceryListItemRecord
+import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.ui.components.ProductImage
 import com.example.android.viewmodel.shopper.CatalogProduct
 import com.example.android.viewmodel.shopper.GroceryListItemUi
@@ -53,7 +52,6 @@ fun GroceryListScreen(
     modifier: Modifier = Modifier
 ) {
     val state = shopperViewModel.uiState
-    var selectedItem by remember { mutableStateOf<GroceryListItemUi?>(null) }
 
     Surface(modifier = modifier.fillMaxSize(), color = Color.White) {
         Column(
@@ -127,7 +125,7 @@ fun GroceryListScreen(
                     Column {
                         state.searchResults.forEach { product ->
                             SearchResultRow(product = product) {
-                                shopperViewModel.addProduct(product)
+                                shopperViewModel.showProductSheet(product.toProductSummary())
                             }
                         }
                     }
@@ -188,7 +186,7 @@ fun GroceryListScreen(
                     items(state.groceryList, key = { it.id }) { item ->
                         GroceryItemCard(
                             item = item,
-                            onOpen = { selectedItem = item },
+                            onOpen = { shopperViewModel.showItemSheet(item.toRecord()) },
                             onIncrement = { shopperViewModel.incrementItem(item.id) },
                             onDecrement = { shopperViewModel.decrementItem(item.id) }
                         )
@@ -197,42 +195,61 @@ fun GroceryListScreen(
             }
         }
 
-        selectedItem?.let { item ->
-            androidx.compose.material.AlertDialog(
-                onDismissRequest = { selectedItem = null },
-                title = { Text(item.name) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Store: ${item.store}")
-                        Text("Size: ${item.unitSize}")
-                        Text("Price: $${"%.2f".format(item.price)}")
-                        Text("Quantity: ${item.quantity}")
-                    }
+        state.productSheet?.let { summary ->
+            ProductDetailSheet(
+                summary = summary,
+                fullProduct = state.sheetProduct,
+                isLoadingFullProduct = state.isLoadingSheetProduct,
+                errorMessage = state.sheetProductError,
+                onAdd = { shopperViewModel.addFromProductSheet() },
+                onDismiss = { shopperViewModel.dismissProductSheet() }
+            )
+        }
+
+        state.itemSheet?.let { record ->
+            ItemDetailSheet(
+                item = record,
+                fullProduct = state.sheetProduct,
+                isLoadingFullProduct = state.isLoadingSheetProduct,
+                errorMessage = state.sheetProductError,
+                onIncrement = { shopperViewModel.incrementItem(record.id) },
+                onDecrement = { shopperViewModel.decrementItem(record.id) },
+                onRemove = {
+                    shopperViewModel.deleteItem(record.id)
+                    shopperViewModel.dismissItemSheet()
                 },
-                confirmButton = {
-                    Text(
-                        text = "Close",
-                        modifier = Modifier
-                            .clickable { selectedItem = null }
-                            .padding(12.dp),
-                        color = NeighborlyGreen
-                    )
-                },
-                dismissButton = {
-                    Text(
-                        text = "Delete",
-                        modifier = Modifier
-                            .clickable {
-                                shopperViewModel.deleteItem(item.id)
-                                selectedItem = null
-                            }
-                            .padding(12.dp),
-                        color = NeighborlyOrange
-                    )
-                }
+                onDismiss = { shopperViewModel.dismissItemSheet() }
             )
         }
     }
+}
+
+private fun CatalogProduct.toProductSummary(): GroceryProductSummary {
+    return GroceryProductSummary(
+        productId = productId,
+        upc = upc,
+        name = name,
+        brand = brand,
+        unitSize = unitSize,
+        bestPrice = price,
+        bestStoreName = store,
+        categoryEmoji = categoryEmoji,
+        imageUrl = imageUrl
+    )
+}
+
+private fun GroceryListItemUi.toRecord(): GroceryListItemRecord {
+    return GroceryListItemRecord(
+        id = id,
+        productId = productId,
+        upc = upc,
+        name = name,
+        unitSize = unitSize,
+        store = store,
+        price = price,
+        quantity = quantity,
+        dateAddedMillis = dateAddedMillis
+    )
 }
 
 @Composable

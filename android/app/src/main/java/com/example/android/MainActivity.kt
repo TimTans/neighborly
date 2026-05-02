@@ -9,6 +9,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.android.data.api.KtorNeighborlyApi
 import com.example.android.data.connectivity.ConnectivityManagerNetworkMonitor
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
@@ -35,7 +36,8 @@ class MainActivity : ComponentActivity() {
                         SharedPreferencesGroceryListLocalDataSource(app.applicationContext)
                     ),
                     preferenceRepository = SharedPreferencesPreferenceRepository(app.applicationContext),
-                    networkMonitor = ConnectivityManagerNetworkMonitor(app.applicationContext)
+                    networkMonitor = ConnectivityManagerNetworkMonitor(app.applicationContext),
+                    api = KtorNeighborlyApi()
                 )
             }
         }
