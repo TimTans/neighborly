@@ -83,7 +83,9 @@ class ApiRouteRepository(
             unitSize = unitSize,
             price = effectivePrice,
             originalPrice = originalPrice,
-            swapAvailable = true
+            swapAvailable = true,
+            imageUrl = imageUrl,
+            categorySlug = categorySlug
         )
     }
 

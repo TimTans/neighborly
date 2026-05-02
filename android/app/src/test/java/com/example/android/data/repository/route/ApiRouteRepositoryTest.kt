@@ -155,6 +155,52 @@ class ApiRouteRepositoryTest {
     }
 
     @Test
+    fun `optimizeRoute propagates imageUrl and categorySlug into RouteStopItem`() = runTest {
+        val item = RouteItem(
+            productId = "p-img",
+            name = "Whole Milk",
+            unitSize = "1 gal",
+            imageUrl = "https://example.com/milk.png",
+            categorySlug = "milk",
+            price = 4.99,
+            salePrice = null
+        )
+        val itemNoMedia = RouteItem(
+            productId = "p-bare",
+            name = "Mystery Item",
+            unitSize = "1 ct",
+            imageUrl = null,
+            categorySlug = null,
+            price = 1.00,
+            salePrice = null
+        )
+        val backendRoute = OptimizedRoute(
+            totalCost = 5.99,
+            stops = listOf(
+                RouteStop(
+                    store = Store(id = "store-A", name = "Trader Joe's"),
+                    items = listOf(item, itemNoMedia),
+                    subtotal = 5.99
+                )
+            )
+        )
+        val api = FakeNeighborlyApi(optimizeResult = Result.success(backendRoute))
+        val repo = ApiRouteRepository(api)
+
+        val plan = repo.optimizeRoute(
+            productIds = listOf("p-img", "p-bare"),
+            userLat = null,
+            userLng = null
+        ).getOrThrow()
+
+        val mappedItems = plan.stops.single().items
+        assertEquals("https://example.com/milk.png", mappedItems[0].imageUrl)
+        assertEquals("milk", mappedItems[0].categorySlug)
+        assertNull(mappedItems[1].imageUrl)
+        assertNull(mappedItems[1].categorySlug)
+    }
+
+    @Test
     fun `optimizeRoute propagates failure from the api`() = runTest {
         val boom = RuntimeException("backend exploded")
         val api = FakeNeighborlyApi(optimizeResult = Result.failure(boom))

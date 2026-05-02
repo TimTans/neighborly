@@ -35,35 +35,45 @@ data class ProductCategory(
     val slug: String
 ) {
     val emoji: String
-        get() = when (slug) {
-            "milk" -> "🥛"
-            "water" -> "💧"
-            "yogurt" -> "🥄"
-            "bread" -> "🍞"
-            "chicken" -> "🍗"
-            "turkey" -> "🦃"
-            "cereal" -> "🥣"
-            "eggs" -> "🥚"
-            "cheese" -> "🧀"
-            "fresh-fruit" -> "🍎"
-            "fresh-vegetables" -> "🥬"
-            "pasta-rice-grains" -> "🍝"
-            "chips" -> "🍿"
-            "canned-packaged-foods" -> "🥫"
-            "frozen-vegetables" -> "🥦"
-            "bakery" -> "🥐"
-            "beverages" -> "🥤"
-            "breakfast" -> "🥞"
-            "deli" -> "🥪"
-            "frozen" -> "❄️"
-            "international" -> "🌍"
-            "meatandseafood" -> "🥩"
-            "pantry" -> "🫙"
-            "produce" -> "🥕"
-            "refrigerated" -> "🧊"
-            "snacks" -> "🍿"
-            else -> "🛒"
-        }
+        get() = categoryEmojiForSlug(slug)
+}
+
+/**
+ * Maps a category slug to its display emoji. Used by both the [ProductCategory.emoji]
+ * extension (when the full category object is available) and by route-list rendering
+ * (where only a slug string is carried on `RouteStopItem`).
+ *
+ * Falls back to "🛒" — same default as [ProductImage]'s fallback emoji — for an
+ * unknown or null slug.
+ */
+fun categoryEmojiForSlug(slug: String?): String = when (slug) {
+    "milk" -> "🥛"
+    "water" -> "💧"
+    "yogurt" -> "🥄"
+    "bread" -> "🍞"
+    "chicken" -> "🍗"
+    "turkey" -> "🦃"
+    "cereal" -> "🥣"
+    "eggs" -> "🥚"
+    "cheese" -> "🧀"
+    "fresh-fruit" -> "🍎"
+    "fresh-vegetables" -> "🥬"
+    "pasta-rice-grains" -> "🍝"
+    "chips" -> "🍿"
+    "canned-packaged-foods" -> "🥫"
+    "frozen-vegetables" -> "🥦"
+    "bakery" -> "🥐"
+    "beverages" -> "🥤"
+    "breakfast" -> "🥞"
+    "deli" -> "🥪"
+    "frozen" -> "❄️"
+    "international" -> "🌍"
+    "meatandseafood" -> "🥩"
+    "pantry" -> "🫙"
+    "produce" -> "🥕"
+    "refrigerated" -> "🧊"
+    "snacks" -> "🍿"
+    else -> "🛒"
 }
 
 @Serializable

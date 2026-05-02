@@ -62,7 +62,9 @@ data class RouteStopItem(
     val unitSize: String?,
     val price: Double?,
     val originalPrice: Double?,
-    val swapAvailable: Boolean = false
+    val swapAvailable: Boolean = false,
+    val imageUrl: String? = null,
+    val categorySlug: String? = null
 )
 
 data class RouteMissingItem(

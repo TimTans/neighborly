@@ -39,7 +39,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.android.data.model.categoryEmojiForSlug
 import com.example.android.data.repository.route.RouteSwapOption
+import com.example.android.ui.components.ProductImage
 import com.example.android.viewmodel.route.OptimizedRouteStop
 import com.example.android.viewmodel.route.RouteMissingItem
 import com.example.android.viewmodel.route.RoutePlan
@@ -280,7 +282,6 @@ private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Uni
 
 @Composable
 private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
-    // TODO(S1.7): render ProductImage here once RouteStopItem carries imageUrl/categorySlug.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -289,6 +290,13 @@ private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        ProductImage(
+            imageUrl = item.imageUrl,
+            contentDescription = item.name,
+            fallbackEmoji = categoryEmojiForSlug(item.categorySlug),
+            size = 48.dp
+        )
+        Spacer(modifier = Modifier.size(2.dp))
         Icon(Icons.Filled.LocationOn, contentDescription = null, tint = NeighborlyGreen, modifier = Modifier.size(18.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(item.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
