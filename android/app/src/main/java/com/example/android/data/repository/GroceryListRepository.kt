@@ -19,6 +19,20 @@ data class GroceryProductSummary(
     val imageUrl: String? = null
 )
 
+internal fun Product.toGroceryProductSummary(): GroceryProductSummary {
+    return GroceryProductSummary(
+        productId = id,
+        upc = upc,
+        name = name,
+        brand = brand,
+        unitSize = unitSize,
+        bestPrice = bestPrice,
+        bestStoreName = bestPriceStoreName,
+        categoryEmoji = productCategories.emoji,
+        imageUrl = imageUrl
+    )
+}
+
 interface GroceryProductSearchGateway {
     suspend fun searchProducts(query: String): Result<List<GroceryProductSummary>>
     suspend fun refreshProducts(productIds: List<String>): Result<List<GroceryProductSummary>>
@@ -78,20 +92,6 @@ class ApiGroceryProductSearchGateway(
 
         return Result.success(refreshedProducts)
     }
-
-    private fun Product.toGroceryProductSummary(): GroceryProductSummary {
-        return GroceryProductSummary(
-            productId = id,
-            upc = upc,
-            name = name,
-            brand = brand,
-            unitSize = unitSize,
-            bestPrice = bestPrice,
-            bestStoreName = bestPriceStoreName,
-            categoryEmoji = productCategories.emoji,
-            imageUrl = imageUrl
-        )
-    }
 }
 
 class GroceryListRepository(
@@ -142,6 +142,26 @@ class GroceryListRepository(
         }
         localDataSource.saveItems(updatedItems)
         return updatedItems
+    }
+
+    fun replaceProduct(
+        currentItemId: String,
+        replacement: GroceryProductSummary
+    ): List<GroceryListItemRecord> {
+        val items = localDataSource.loadItems().toMutableList()
+        val index = items.indexOfFirst { it.id == currentItemId }
+        if (index == -1) return items
+        val current = items[index]
+        items[index] = current.copy(
+            productId = replacement.productId,
+            upc = replacement.upc,
+            name = replacement.name,
+            unitSize = replacement.unitSize.ifBlank { current.unitSize },
+            store = replacement.bestStoreName.orEmpty(),
+            price = replacement.bestPrice ?: current.price
+        )
+        localDataSource.saveItems(items)
+        return items
     }
 
     fun deleteItem(id: String): List<GroceryListItemRecord> {

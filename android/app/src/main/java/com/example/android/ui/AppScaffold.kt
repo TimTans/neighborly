@@ -112,11 +112,14 @@ fun AppScaffold(
 
             AppDestination.Lists -> GroceryListScreen(
                 shopperViewModel = shopperViewModel,
+                routeViewModel = routeViewModel,
+                onNavigateToRoute = { destination = AppDestination.Route },
                 modifier = Modifier.padding(innerPadding)
             )
 
             AppDestination.Route -> RouteScreen(
                 routeViewModel = routeViewModel,
+                shopperViewModel = shopperViewModel,
                 modifier = Modifier.padding(innerPadding)
             )
 

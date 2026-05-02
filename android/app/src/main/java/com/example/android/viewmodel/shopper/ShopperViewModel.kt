@@ -15,10 +15,13 @@ import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSourc
 import com.example.android.data.model.Product
 import com.example.android.data.repository.GroceryListRepository
 import com.example.android.data.repository.GroceryProductSummary
+import com.example.android.data.repository.toGroceryProductSummary
 import com.example.android.data.repository.preferences.OptimizationPriority
 import com.example.android.data.repository.preferences.PreferenceRepository
 import com.example.android.data.repository.preferences.PreferenceState
 import com.example.android.data.repository.preferences.TransportMode
+import com.example.android.data.location.UserCoordinates
+import com.example.android.viewmodel.route.RouteViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -63,7 +66,8 @@ data class ShopperUiState(
     val itemSheet: GroceryListItemRecord? = null,
     val sheetProduct: Product? = null,
     val isLoadingSheetProduct: Boolean = false,
-    val sheetProductError: String? = null
+    val sheetProductError: String? = null,
+    val routeCreationError: String? = null
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -307,6 +311,92 @@ class ShopperViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Kicks off route optimization for the current grocery list. The screen layer
+     * is responsible for requesting location permission first; we just take an
+     * optional [userLocation] and forward it to the route view model along with
+     * the user's persisted preferences.
+     *
+     * Empty-product-ID lists set [ShopperUiState.routeCreationError] instead of
+     * hitting the API — mirrors iOS `optimizeRoute` (GroceryListView.swift:523-528).
+     *
+     * The slider sentinel `11` (max value) is interpreted as "unlimited" and
+     * sent to the backend as `null` for both `max_stops` and `max_radius_miles`,
+     * matching iOS `Priority` mapping in PreferencesView.swift.
+     */
+    fun createRoute(
+        routeViewModel: RouteViewModel,
+        userLocation: UserCoordinates?
+    ) {
+        val productIds = uiState.groceryList.mapNotNull { item ->
+            item.productId?.takeIf { it.isNotBlank() }
+        }
+        if (productIds.isEmpty()) {
+            uiState = uiState.copy(
+                routeCreationError = "Add at least one priced product before creating a route."
+            )
+            return
+        }
+
+        val preferences = uiState.preferences
+        val mode = preferences.priority.toBackendMode()
+        val maxStops = preferences.maxStops.toInt().takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
+        val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
+            .takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
+
+        uiState = uiState.copy(routeCreationError = null)
+        routeViewModel.createRoute(
+            productIds = productIds,
+            userLat = userLocation?.latitude,
+            userLng = userLocation?.longitude,
+            mode = mode,
+            maxStops = maxStops,
+            maxRadiusMiles = maxRadiusMiles
+        )
+    }
+
+    fun clearRouteCreationError() {
+        if (uiState.routeCreationError != null) {
+            uiState = uiState.copy(routeCreationError = null)
+        }
+    }
+
+    fun findItemIdByProductId(productId: String?): String? {
+        if (productId.isNullOrBlank()) return null
+        return uiState.groceryList.firstOrNull { it.productId == productId }?.id
+    }
+
+    /**
+     * Apply a swap selected from the route's alternatives dialog. Fetches the full
+     * [Product] for [replacementProductId] so the persisted grocery-list record can
+     * carry the same field set as items added via search, then replaces the row
+     * identified by [currentItemId] in the local list. On success [onComplete] is
+     * invoked with the updated list of product IDs so the route can be re-optimized.
+     */
+    fun applySwap(
+        currentItemId: String,
+        replacementProductId: String,
+        onComplete: (productIds: List<String>) -> Unit
+    ) {
+        viewModelScope.launch {
+            api.getProduct(replacementProductId)
+                .onSuccess { product ->
+                    val summary = product.toGroceryProductSummary()
+                    val updatedItems = groceryListRepository.replaceProduct(currentItemId, summary)
+                    uiState = uiState.copy(
+                        groceryList = updatedItems.toUiItems(),
+                        refreshError = null
+                    )
+                    onComplete(updatedItems.mapNotNull { it.productId })
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        refreshError = error.message ?: "Unable to apply swap."
+                    )
+                }
+        }
+    }
+
     fun updatePriority(priority: OptimizationPriority) {
         updatePreferences { it.copy(priority = priority) }
     }
@@ -437,5 +527,9 @@ class ShopperViewModel @JvmOverloads constructor(
     private companion object {
         const val MIN_SEARCH_QUERY_LENGTH = 2
         const val SEARCH_DEBOUNCE_MILLIS = 300L
+        // Preference sliders (`maxStops`, `maxTravelDistanceMiles`) range 1..11; the
+        // top notch represents "unlimited" — drop the cap when sending to the
+        // backend. Mirrors iOS PreferencesView.swift sentinel handling.
+        const val UNLIMITED_PREFERENCE_SLIDER_VALUE = 11
     }
 }

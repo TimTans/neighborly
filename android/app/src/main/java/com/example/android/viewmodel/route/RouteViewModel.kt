@@ -91,9 +91,16 @@ class RouteViewModel(
     var uiState by mutableStateOf(RouteUiState())
         private set
 
-    fun createRoute(productIds: List<String>, userLat: Double? = null, userLng: Double? = null) {
+    fun createRoute(
+        productIds: List<String>,
+        userLat: Double? = null,
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
+    ) {
         setPendingProducts(productIds)
-        optimizePendingRoute(userLat, userLng)
+        optimizePendingRoute(userLat, userLng, mode, maxStops, maxRadiusMiles)
     }
 
     fun setPendingProducts(productIds: List<String>) {
@@ -109,7 +116,13 @@ class RouteViewModel(
         )
     }
 
-    fun optimizePendingRoute(userLat: Double? = null, userLng: Double? = null) {
+    fun optimizePendingRoute(
+        userLat: Double? = null,
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
+    ) {
         val productIds = uiState.pendingProductIds
         if (productIds.isEmpty()) {
             uiState = uiState.copy(
@@ -121,7 +134,14 @@ class RouteViewModel(
 
         uiState = uiState.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
-            routeRepository.optimizeRoute(productIds, userLat, userLng)
+            routeRepository.optimizeRoute(
+                productIds = productIds,
+                userLat = userLat,
+                userLng = userLng,
+                mode = mode,
+                maxStops = maxStops,
+                maxRadiusMiles = maxRadiusMiles
+            )
                 .onSuccess { submitOptimizedRoute(it) }
                 .onFailure { failure ->
                     uiState = uiState.copy(

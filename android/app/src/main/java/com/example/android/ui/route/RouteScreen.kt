@@ -45,6 +45,7 @@ import com.example.android.viewmodel.route.RouteMissingItem
 import com.example.android.viewmodel.route.RoutePlan
 import com.example.android.viewmodel.route.RouteStopItem
 import com.example.android.viewmodel.route.RouteViewModel
+import com.example.android.viewmodel.shopper.ShopperViewModel
 
 private val NeighborlyBackground = Color(0xFFF7F3EC)
 private val NeighborlyGreen = Color(0xFF0C6A4A)
@@ -55,6 +56,7 @@ private val NeighborlyInk = Color(0xFF1A1A1A)
 @Composable
 fun RouteScreen(
     routeViewModel: RouteViewModel,
+    shopperViewModel: ShopperViewModel,
     modifier: Modifier = Modifier
 ) {
     val state = routeViewModel.uiState
@@ -100,7 +102,33 @@ fun RouteScreen(
                     isLoading = state.isLoadingSwapOptions,
                     options = state.swapOptions,
                     errorMessage = state.swapErrorMessage,
-                    onDismiss = routeViewModel::dismissSwapAlternatives
+                    onDismiss = routeViewModel::dismissSwapAlternatives,
+                    onSelectOption = { option ->
+                        // The route's selected swap product id is the *current* product id of
+                        // the item being swapped. Resolve it back to the persisted grocery-list
+                        // record id so the repository knows which row to mutate. If the item
+                        // has no product id (e.g. legacy entries), there is nothing to swap.
+                        val currentProductId = state.selectedSwapProductId
+                        val currentItemId = shopperViewModel.findItemIdByProductId(currentProductId)
+                        if (currentItemId == null) {
+                            routeViewModel.dismissSwapAlternatives()
+                            return@SwapAlternativesDialog
+                        }
+                        val preferences = shopperViewModel.uiState.preferences
+                        val mode = preferences.priority.toBackendMode()
+                        val maxStops = preferences.maxStops.toInt().takeIf { it < 11 }
+                        val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
+                            .takeIf { preferences.maxTravelDistanceMiles.toInt() < 11 }
+                        shopperViewModel.applySwap(currentItemId, option.productId) { newProductIds ->
+                            routeViewModel.setPendingProducts(newProductIds)
+                            routeViewModel.optimizePendingRoute(
+                                mode = mode,
+                                maxStops = maxStops,
+                                maxRadiusMiles = maxRadiusMiles,
+                            )
+                        }
+                        routeViewModel.dismissSwapAlternatives()
+                    }
                 )
             }
         }
@@ -378,7 +406,8 @@ private fun SwapAlternativesDialog(
     isLoading: Boolean,
     options: List<RouteSwapOption>,
     errorMessage: String?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSelectOption: (RouteSwapOption) -> Unit
 ) {
     androidx.compose.material.AlertDialog(
         onDismissRequest = onDismiss,
@@ -393,7 +422,13 @@ private fun SwapAlternativesDialog(
                     errorMessage != null -> Text(errorMessage, color = NeighborlyOrange)
                     options.isEmpty() -> Text("No alternatives returned for this product yet.")
                     else -> options.forEach { option ->
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectOption(option) }
+                                .padding(vertical = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(option.name, fontWeight = FontWeight.SemiBold)
                             Text(
                                 listOfNotNull(option.storeName, option.price.formatMoneyOrDash(), option.reason).joinToString(" • "),
