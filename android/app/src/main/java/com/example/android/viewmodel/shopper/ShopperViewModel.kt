@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.android.data.connectivity.NetworkMonitor
 import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
@@ -18,6 +19,7 @@ import com.example.android.data.repository.preferences.TransportMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -66,7 +68,8 @@ class ShopperViewModel @JvmOverloads constructor(
     ),
     private val preferenceRepository: PreferenceRepository = SharedPreferencesPreferenceRepository(
         application.applicationContext
-    )
+    ),
+    private val networkMonitor: NetworkMonitor? = null
 ) : AndroidViewModel(application) {
     var uiState by mutableStateOf(ShopperUiState())
         private set
@@ -82,6 +85,23 @@ class ShopperViewModel @JvmOverloads constructor(
             uiState = uiState.copy(preferences = persistedPreferences)
         }
         refreshPrices()
+        observeConnectivity()
+    }
+
+    private fun observeConnectivity() {
+        val monitor = networkMonitor ?: return
+        viewModelScope.launch {
+            // Skip the very first emission — `init` already kicks off `refreshPrices()`.
+            // Only `false -> true` transitions after that should trigger a refresh, mirroring
+            // iOS `NetworkMonitor.didReconnect` (GroceryListView.swift:9-36).
+            var previous: Boolean? = null
+            monitor.isOnline.collect { current ->
+                if (previous == false && current) {
+                    refreshPrices()
+                }
+                previous = current
+            }
+        }
     }
 
     fun updateSearchQuery(value: String) {
