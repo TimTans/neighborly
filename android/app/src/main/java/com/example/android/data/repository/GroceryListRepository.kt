@@ -1,7 +1,10 @@
 package com.example.android.data.repository
 
+import com.example.android.data.api.KtorNeighborlyApi
+import com.example.android.data.api.NeighborlyApi
 import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.GroceryListLocalDataSource
+import com.example.android.data.model.Product
 import java.util.UUID
 
 data class GroceryProductSummary(
@@ -55,9 +58,45 @@ class LocalFallbackGroceryProductSearchGateway : GroceryProductSearchGateway {
     }
 }
 
+class ApiGroceryProductSearchGateway(
+    private val api: NeighborlyApi = KtorNeighborlyApi()
+) : GroceryProductSearchGateway {
+    override suspend fun searchProducts(query: String): Result<List<GroceryProductSummary>> {
+        return api.searchProducts(query)
+            .map { response -> response.data.map { it.toGroceryProductSummary() } }
+    }
+
+    override suspend fun refreshProducts(productIds: List<String>): Result<List<GroceryProductSummary>> {
+        if (productIds.isEmpty()) return Result.success(emptyList())
+
+        val refreshedProducts = mutableListOf<GroceryProductSummary>()
+        productIds.distinct().forEach { productId ->
+            api.getProduct(productId)
+                .onSuccess { product -> refreshedProducts += product.toGroceryProductSummary() }
+                .onFailure { error -> return Result.failure(error) }
+        }
+
+        return Result.success(refreshedProducts)
+    }
+
+    private fun Product.toGroceryProductSummary(): GroceryProductSummary {
+        return GroceryProductSummary(
+            productId = id,
+            upc = upc,
+            name = name,
+            brand = brand,
+            unitSize = unitSize,
+            bestPrice = bestPrice,
+            bestStoreName = bestPriceStoreName,
+            categoryEmoji = productCategories.emoji,
+            imageUrl = imageUrl
+        )
+    }
+}
+
 class GroceryListRepository(
     private val localDataSource: GroceryListLocalDataSource,
-    private val productSearchGateway: GroceryProductSearchGateway = LocalFallbackGroceryProductSearchGateway()
+    private val productSearchGateway: GroceryProductSearchGateway = ApiGroceryProductSearchGateway()
 ) {
     fun loadItems(): List<GroceryListItemRecord> = localDataSource.loadItems()
 

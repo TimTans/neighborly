@@ -1,0 +1,26 @@
+
+> neighborly@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.91.177:3000
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 448ms
+ GET /settings 404 in 433ms (compile: 364ms, render: 68ms)
+ GET /settings 404 in 34ms (compile: 5ms, render: 28ms)
+ GET /settings 404 in 30ms (compile: 5ms, render: 25ms)
+ GET / 200 in 110ms (compile: 46ms, render: 63ms)
+ GET /auth/login 200 in 84ms (compile: 68ms, render: 16ms)
+ GET /dashboard 404 in 38ms (compile: 6ms, render: 32ms)
+ GET /userdashboard 200 in 107ms (compile: 74ms, render: 33ms)
+ GET / 200 in 21ms (compile: 3ms, render: 18ms)
+ POST /userdashboard 303 in 331ms (compile: 6ms, render: 326ms)
+ GET / 200 in 10ms (compile: 2ms, render: 8ms)
+ GET /auth/login 200 in 27ms (compile: 4ms, render: 23ms)
+ GET /userdashboard 200 in 22ms (compile: 4ms, render: 17ms)
+ POST /auth/login 303 in 340ms (compile: 3ms, render: 337ms)
+ GET /vendordashboard 200 in 233ms (compile: 183ms, render: 50ms)
+[?25h
