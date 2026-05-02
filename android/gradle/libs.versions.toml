@@ -11,6 +11,8 @@ ktor = "2.3.7"
 playServicesLocation = "21.3.0"
 coroutinesPlayServices = "1.9.0"
 coil = "2.7.0"
+mapbox = "11.7.1"
+mapboxCompose = "11.7.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -27,6 +29,8 @@ ktor-client-serialization-json = { group = "io.ktor", name = "ktor-serialization
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+mapbox-android = { group = "com.mapbox.maps", name = "android", version.ref = "mapbox" }
+mapbox-compose = { group = "com.mapbox.extension", name = "maps-compose", version.ref = "mapboxCompose" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -123,7 +123,14 @@ private fun RouteContent(
         }
 
         item {
-            RouteMapPlaceholder(stops = route.stops)
+            MapboxRouteMap(
+                stops = route.stops,
+                userLocation = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(24.dp))
+            )
         }
 
         items(route.stops, key = { stop -> "${stop.index}-${stop.storeId}-${stop.storeName}" }) { stop ->
@@ -196,49 +203,6 @@ private fun SummaryPill(text: String) {
             .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
         Text(text = text, style = MaterialTheme.typography.bodySmall, color = NeighborlyGreen)
-    }
-}
-
-@Composable
-private fun RouteMapPlaceholder(stops: List<OptimizedRouteStop>) {
-    val stopsWithCoordinates = stops.filter { it.latitude != null && it.longitude != null }
-
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFECF5EF)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Map, contentDescription = null, tint = NeighborlyGreen)
-                Text(
-                    "Map preview",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = NeighborlyInk
-                )
-            }
-            Text(
-                text = if (stopsWithCoordinates.isEmpty()) {
-                    "Route data is ready for map rendering once stop coordinates arrive from the API."
-                } else {
-                    "Showing ${stopsWithCoordinates.size} coordinate-backed stop pins. SDK polyline rendering can replace this bounded placeholder."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF4F7E6B)
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                stopsWithCoordinates.forEach { stop ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StopNumber(index = stop.index)
-                        Text(
-                            text = "${stop.storeName}: ${"%.4f".format(stop.latitude)}, ${"%.4f".format(stop.longitude)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NeighborlyInk
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
