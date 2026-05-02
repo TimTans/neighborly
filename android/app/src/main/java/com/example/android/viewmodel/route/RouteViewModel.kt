@@ -5,9 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.android.data.repository.route.ApiRouteRepository
 import com.example.android.data.repository.route.RouteRepository
 import com.example.android.data.repository.route.RouteSwapOption
-import com.example.android.data.repository.route.UnavailableRouteRepository
 import kotlinx.coroutines.launch
 
 data class RoutePlan(
@@ -86,7 +86,7 @@ data class RouteUiState(
 }
 
 class RouteViewModel(
-    private val routeRepository: RouteRepository = UnavailableRouteRepository()
+    private val routeRepository: RouteRepository = ApiRouteRepository()
 ) : ViewModel() {
     var uiState by mutableStateOf(RouteUiState())
         private set

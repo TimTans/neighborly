@@ -3,7 +3,18 @@ package com.example.android.data.repository.preferences
 enum class OptimizationPriority(val label: String) {
     LowestCost("Lowest Cost"),
     ShortestRoute("Shortest Route"),
-    FastestTrip("Fastest Trip")
+    FastestTrip("Fastest Trip");
+
+    /**
+     * Maps the user-facing priority to the backend `mode` query parameter on
+     * `/routes/optimize`. Mirrors iOS `Priority.backendMode`
+     * (PreferencesView.swift:23-29).
+     */
+    fun toBackendMode(): String = when (this) {
+        LowestCost -> "cost"
+        ShortestRoute -> "distance"
+        FastestTrip -> "stops"
+    }
 }
 
 enum class TransportMode(val label: String) {

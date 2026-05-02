@@ -43,7 +43,10 @@ interface NeighborlyApi {
     suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double? = null,
-        userLng: Double? = null
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
     ): Result<OptimizedRoute>
 
     suspend fun getAlternatives(productId: String): Result<List<Product>>
@@ -102,7 +105,10 @@ class KtorNeighborlyApi(
     override suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double?,
-        userLng: Double?
+        userLng: Double?,
+        mode: String?,
+        maxStops: Int?,
+        maxRadiusMiles: Double?
     ): Result<OptimizedRoute> = request {
         post {
             neighborlyUrl("routes", "optimize")
@@ -111,7 +117,10 @@ class KtorNeighborlyApi(
                 OptimizeRouteRequest(
                     productIds = productIds,
                     userLat = userLat,
-                    userLng = userLng
+                    userLng = userLng,
+                    mode = mode,
+                    maxStops = maxStops,
+                    maxRadiusMiles = maxRadiusMiles
                 )
             )
         }
