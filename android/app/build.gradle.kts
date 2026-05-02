@@ -72,6 +72,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.coil.compose)
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
 
     // Jetpack Compose
