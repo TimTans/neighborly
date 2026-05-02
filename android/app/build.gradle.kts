@@ -105,6 +105,8 @@ dependencies {
     implementation(libs.ktor.client.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.kotlinx.serialization.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
