@@ -18,11 +18,13 @@ import com.example.android.ui.theme.NeighborlyTheme
 import com.example.android.ui.login.LoginScreen
 import com.example.android.viewmodel.home.HomeViewModel
 import com.example.android.viewmodel.login.LoginViewModel
+import com.example.android.viewmodel.route.RouteViewModel
 import com.example.android.viewmodel.shopper.ShopperViewModel
 
 class MainActivity : ComponentActivity() {
     private val loginViewModel: LoginViewModel by viewModels()
     private val homeViewModel: HomeViewModel by viewModels()
+    private val routeViewModel: RouteViewModel by viewModels()
     private val shopperViewModel: ShopperViewModel by viewModels {
         viewModelFactory {
             initializer {
@@ -49,7 +51,8 @@ class MainActivity : ComponentActivity() {
                         AppScaffold(
                             loginViewModel = loginViewModel,
                             homeViewModel = homeViewModel,
-                            shopperViewModel = shopperViewModel
+                            shopperViewModel = shopperViewModel,
+                            routeViewModel = routeViewModel
                         )
                     } else {
                         LoginScreen(viewModel = loginViewModel)
