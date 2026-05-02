@@ -6,10 +6,16 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -48,6 +55,7 @@ import com.mapbox.maps.viewannotation.viewAnnotationOptions
 private val PolylineGreen = Color(0xFF1FA86E)
 private val BadgeOrange = Color(0xFFE67E22)
 private val BadgeOrangeSoft = Color(0xFFFFF3E0)
+private val NeighborlyGreen = Color(0xFF0C6A4A)
 
 /**
  * Compose wrapper around the Mapbox Maps SDK matching the iOS
@@ -62,6 +70,8 @@ private val BadgeOrangeSoft = Color(0xFFFFF3E0)
  *     legible at any zoom level and reuses Compose typography.
  *   - Camera fit to bounds of [user, stops] with 40dp padding via the
  *     `MapboxMap.cameraForCoordinates` helper, animated with `flyTo`.
+ *   - Tapping a pin zooms to that single stop; an "All stops" pill in the
+ *     top-end corner returns to the fit-all viewport (mirrors iOS behavior).
  */
 @Composable
 fun MapboxRouteMap(
@@ -72,6 +82,8 @@ fun MapboxRouteMap(
 ) {
     val viewportState = rememberMapViewportState()
     var directions by remember { mutableStateOf<DirectionsResult?>(null) }
+    // null = fit all stops; non-null = zoomed to a single tapped pin's index
+    var focusedStopIndex by remember(stops) { mutableStateOf<Int?>(null) }
 
     val pinPoints = remember(stops) {
         stops.mapNotNull { stop ->
@@ -112,78 +124,145 @@ fun MapboxRouteMap(
         pinBitmaps.mapValues { (_, bmp) -> IconImage(bmp) }
     }
 
-    MapboxMap(
-        modifier = modifier,
-        mapViewportState = viewportState,
-        style = { MapStyle(style = "mapbox://styles/mapbox/streets-v12") }
-    ) {
-        // Enable the user-location puck and recompute camera bounds once the
-        // map view exists.
-        MapEffect(stops, userLocation) { mapView ->
-            mapView.location.updateSettings {
-                enabled = true
-                locationPuck = createDefault2DPuck(withBearing = true)
-                puckBearingEnabled = true
+    Box(modifier = modifier) {
+        MapboxMap(
+            modifier = Modifier.matchParentSize(),
+            mapViewportState = viewportState,
+            style = { MapStyle(style = "mapbox://styles/mapbox/streets-v12") }
+        ) {
+            // Enable the user-location puck and recompute camera bounds once the
+            // map view exists. Recomputes when `focusedStopIndex` flips so a
+            // pin tap (or "All stops" reset) animates the camera.
+            MapEffect(stops, userLocation, focusedStopIndex) { mapView ->
+                mapView.location.updateSettings {
+                    enabled = true
+                    locationPuck = createDefault2DPuck(withBearing = true)
+                    puckBearingEnabled = true
+                }
+
+                val focused = focusedStopIndex
+                if (focused != null) {
+                    val pin = pinPoints.getOrNull(focused)
+                    if (pin != null) {
+                        val (_, lat, lng) = pin
+                        val targetCamera = CameraOptions.Builder()
+                            .center(Point.fromLngLat(lng, lat))
+                            .zoom(15.0)
+                            .build()
+                        viewportState.flyTo(targetCamera)
+                        return@MapEffect
+                    }
+                }
+
+                val coords = buildList<Point> {
+                    userLocation?.let { add(Point.fromLngLat(it.longitude, it.latitude)) }
+                    pinPoints.forEach { (_, lat, lng) -> add(Point.fromLngLat(lng, lat)) }
+                }
+                if (coords.isEmpty()) return@MapEffect
+
+                val targetCamera = if (coords.size == 1) {
+                    CameraOptions.Builder()
+                        .center(coords.first())
+                        .zoom(14.0)
+                        .build()
+                } else {
+                    // v11 non-deprecated overload: takes a CameraOptions anchor
+                    // alongside coordinates / padding. Pass an empty anchor so
+                    // Mapbox computes both center and zoom from the bounds.
+                    mapView.mapboxMap.cameraForCoordinates(
+                        coords,
+                        CameraOptions.Builder().build(),
+                        EdgeInsets(40.0, 40.0, 40.0, 40.0),
+                        null,
+                        null
+                    )
+                }
+                viewportState.flyTo(targetCamera)
             }
 
-            val coords = buildList<Point> {
-                userLocation?.let { add(Point.fromLngLat(it.longitude, it.latitude)) }
-                pinPoints.forEach { (_, lat, lng) -> add(Point.fromLngLat(lng, lat)) }
-            }
-            if (coords.isEmpty()) return@MapEffect
-
-            val targetCamera = if (coords.size == 1) {
-                CameraOptions.Builder()
-                    .center(coords.first())
-                    .zoom(14.0)
-                    .build()
-            } else {
-                mapView.mapboxMap.cameraForCoordinates(
-                    coords,
-                    EdgeInsets(40.0, 40.0, 40.0, 40.0),
-                    null,
-                    null
-                )
-            }
-            viewportState.flyTo(targetCamera)
-        }
-
-        // Walking polyline (real or straight-line fallback).
-        if (polylinePoints.size >= 2) {
-            PolylineAnnotation(points = polylinePoints) {
-                lineColor = PolylineGreen
-                lineWidth = 4.0
-                lineOpacity = 0.8
-            }
-        }
-
-        // Numbered pins.
-        pinPoints.forEachIndexed { index, (_, lat, lng) ->
-            val displayNumber = index + 1
-            val point = Point.fromLngLat(lng, lat)
-            val icon = pinIcons[displayNumber] ?: return@forEachIndexed
-
-            PointAnnotation(point = point) {
-                iconImage = icon
-                iconAnchor = IconAnchor.BOTTOM
+            // Walking polyline (real or straight-line fallback). Always shown
+            // regardless of focus state.
+            if (polylinePoints.size >= 2) {
+                PolylineAnnotation(points = polylinePoints) {
+                    lineColor = PolylineGreen
+                    lineWidth = 4.0
+                    lineOpacity = 0.8
+                }
             }
 
-            // Per-leg ETA badge: walking duration from the previous waypoint
-            // (user when present, otherwise previous stop).
-            val legIndex = if (userLocation != null) index else index - 1
-            val durationSeconds = directions?.legs?.getOrNull(legIndex)?.durationSeconds
-            if (durationSeconds != null) {
-                val minutes = maxOf(1, (durationSeconds / 60.0).toInt())
-                ViewAnnotation(
-                    options = viewAnnotationOptions {
-                        geometry(point)
-                        allowOverlap(true)
+            // Numbered pins. Per-pin onClick captures the tapped index so the
+            // camera can fly to that single stop.
+            pinPoints.forEachIndexed { index, (_, lat, lng) ->
+                val displayNumber = index + 1
+                val point = Point.fromLngLat(lng, lat)
+                val icon = pinIcons[displayNumber] ?: return@forEachIndexed
+
+                PointAnnotation(
+                    point = point,
+                    onClick = {
+                        focusedStopIndex = index
+                        // Returning true marks the click handled and prevents
+                        // any further click propagation on the map.
+                        true
                     }
                 ) {
-                    EtaBadge(minutes = minutes)
+                    iconImage = icon
+                    iconAnchor = IconAnchor.BOTTOM
+                }
+
+                // Per-leg ETA badge: walking duration from the previous waypoint
+                // (user when present, otherwise previous stop). Always shown.
+                val legIndex = if (userLocation != null) index else index - 1
+                val durationSeconds = directions?.legs?.getOrNull(legIndex)?.durationSeconds
+                if (durationSeconds != null) {
+                    val minutes = maxOf(1, (durationSeconds / 60.0).toInt())
+                    ViewAnnotation(
+                        options = viewAnnotationOptions {
+                            geometry(point)
+                            allowOverlap(true)
+                        }
+                    ) {
+                        EtaBadge(minutes = minutes)
+                    }
                 }
             }
         }
+
+        // "All stops" reset pill, top-end corner. Only visible when zoomed
+        // to a single pin. Mirrors iOS `MapboxRouteMap.swift` lines 93-110.
+        if (focusedStopIndex != null) {
+            AllStopsPill(
+                onClick = { focusedStopIndex = null },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AllStopsPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(NeighborlyGreen)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.wrapContentSize()
+        )
+        Text(
+            text = "All stops",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = Color.White
+        )
     }
 }
 
