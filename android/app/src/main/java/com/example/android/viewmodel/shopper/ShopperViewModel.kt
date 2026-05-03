@@ -27,10 +27,51 @@ import com.example.android.domain.wellness.violations
 import com.example.android.viewmodel.route.RouteViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * One row in the wellness warning sheet shown before "Create Route" optimizes.
+ * Mirrors the iOS tuple at GroceryListView.swift:678-693.
+ */
+data class WarningItem(
+    val productId: String,
+    val productName: String,
+    val violations: List<WellnessViolation>,
+)
+
+/**
+ * Pure helper that produces the wellness warning rows for a grocery list.
+ *
+ * - Items without a productId are skipped (no nutrition can ever be looked up
+ *   for them — they were added before products had server IDs).
+ * - Items whose nutrition is *not* yet cached are also skipped. Callers should
+ *   call [ShopperViewModel.ensureNutritionLoaded] first when they need the
+ *   warnings to be exhaustive (e.g. before showing the "Create Route" sheet).
+ * - Allergen violations always fire; nutrient-limit violations only fire when
+ *   `prefs.wellnessEnabled = true` — that gating lives inside
+ *   [com.example.android.domain.wellness.violations] so we just defer to it
+ *   here.
+ */
+internal fun computeRouteWarnings(
+    items: List<GroceryListItemUi>,
+    nutritionCache: Map<String, ProductNutrition?>,
+    prefs: PreferenceState,
+): List<WarningItem> {
+    return items.mapNotNull { item ->
+        val productId = item.productId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        if (!nutritionCache.containsKey(productId)) return@mapNotNull null
+        val nutrition = nutritionCache[productId] ?: return@mapNotNull null
+        val violations = nutrition.violations(prefs)
+        if (violations.isEmpty()) return@mapNotNull null
+        WarningItem(productId = productId, productName = item.name, violations = violations)
+    }
+}
 
 data class CatalogProduct(
     val productId: String?,
@@ -77,7 +118,16 @@ data class ShopperUiState(
      * server was queried and returned no nutrition payload — recording that
      * absence prevents redundant refetches.
      */
-    val nutritionCache: Map<String, ProductNutrition?> = emptyMap()
+    val nutritionCache: Map<String, ProductNutrition?> = emptyMap(),
+    /**
+     * Non-null while the wellness warning sheet is in front of "Create Route".
+     * Set by [ShopperViewModel.createRoute] when wellness violations exist for
+     * the current grocery list; cleared by either
+     * [ShopperViewModel.confirmRouteCreationDespiteWarnings] (proceed) or
+     * [ShopperViewModel.dismissRouteWarnings] (cancel). Mirrors iOS
+     * `wellnessWarnings` (GroceryListView.swift:678-693).
+     */
+    val pendingRouteWarnings: List<WarningItem>? = null
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -386,21 +436,96 @@ class ShopperViewModel @JvmOverloads constructor(
             return
         }
 
+        uiState = uiState.copy(routeCreationError = null)
+        // Set pending IDs eagerly so the iOS-style "intercept then continue"
+        // path in [confirmRouteCreationDespiteWarnings] can call
+        // [RouteViewModel.optimizePendingRoute] without re-supplying them.
+        routeViewModel.setPendingProducts(productIds)
+
+        viewModelScope.launch {
+            ensureNutritionLoaded(productIds)
+            val warnings = computeRouteWarnings(
+                items = uiState.groceryList,
+                nutritionCache = uiState.nutritionCache,
+                prefs = uiState.preferences,
+            )
+            if (warnings.isNotEmpty()) {
+                uiState = uiState.copy(pendingRouteWarnings = warnings)
+                return@launch
+            }
+            launchOptimize(routeViewModel, userLocation)
+        }
+    }
+
+    /**
+     * Continues the optimize call that was paused by the wellness warning
+     * sheet. Clears [ShopperUiState.pendingRouteWarnings] and forwards the
+     * already-pending products in the [RouteViewModel] to the backend.
+     */
+    fun confirmRouteCreationDespiteWarnings(
+        routeViewModel: RouteViewModel,
+        userLocation: UserCoordinates?,
+    ) {
+        uiState = uiState.copy(pendingRouteWarnings = null)
+        launchOptimize(routeViewModel, userLocation)
+    }
+
+    /**
+     * User chose to bail out of "Create Route" from the warning sheet. Drops
+     * the pending warnings without firing optimize.
+     */
+    fun dismissRouteWarnings() {
+        if (uiState.pendingRouteWarnings != null) {
+            uiState = uiState.copy(pendingRouteWarnings = null)
+        }
+    }
+
+    private fun launchOptimize(
+        routeViewModel: RouteViewModel,
+        userLocation: UserCoordinates?,
+    ) {
         val preferences = uiState.preferences
         val mode = preferences.priority.toBackendMode()
         val maxStops = preferences.maxStops.toInt().takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
         val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
             .takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
 
-        uiState = uiState.copy(routeCreationError = null)
-        routeViewModel.createRoute(
-            productIds = productIds,
+        routeViewModel.optimizePendingRoute(
             userLat = userLocation?.latitude,
             userLng = userLocation?.longitude,
             mode = mode,
             maxStops = maxStops,
-            maxRadiusMiles = maxRadiusMiles
+            maxRadiusMiles = maxRadiusMiles,
         )
+    }
+
+    /**
+     * Eagerly fetches nutrition for any [productIds] not already present in the
+     * cache. Fetches run in parallel — wellness warnings should never serialize
+     * a 20-item list. Failures are silently swallowed; missing nutrition just
+     * means an item gets excluded from warnings, mirroring iOS
+     * `loadNutrition()` (GroceryListView.swift:663-676).
+     */
+    internal suspend fun ensureNutritionLoaded(productIds: List<String>) {
+        val missing = productIds
+            .filter { it.isNotBlank() && !uiState.nutritionCache.containsKey(it) }
+            .distinct()
+        if (missing.isEmpty()) return
+
+        val fetched: Map<String, ProductNutrition?> = coroutineScope {
+            missing.map { id ->
+                async {
+                    id to api.getProduct(id).getOrNull()?.productNutrition
+                }
+            }.awaitAll().toMap()
+        }
+        // Merge — drop entries whose key already showed up via another path
+        // while we were awaiting (loadNutritionFor / loadSheetProduct).
+        val merged = uiState.nutritionCache.toMutableMap()
+        fetched.forEach { (id, nutrition) ->
+            if (!merged.containsKey(id)) merged[id] = nutrition
+        }
+        uiState = uiState.copy(nutritionCache = merged)
     }
 
     fun clearRouteCreationError() {

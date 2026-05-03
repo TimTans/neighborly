@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.example.android.data.model.Product
 import com.example.android.data.model.StoreProduct
 import com.example.android.data.repository.GroceryProductSummary
+import com.example.android.domain.wellness.WellnessViolation
 import com.example.android.ui.components.ProductImage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +45,7 @@ fun ProductDetailSheet(
     fullProduct: Product?,
     isLoadingFullProduct: Boolean,
     errorMessage: String?,
+    violations: List<WellnessViolation>,
     onAdd: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -99,6 +101,8 @@ fun ProductDetailSheet(
             }
 
             HorizontalDivider(color = SheetTheme.divider)
+
+            WellnessPanel(violations = violations)
 
             StorePricesSection(
                 fullProduct = fullProduct,
