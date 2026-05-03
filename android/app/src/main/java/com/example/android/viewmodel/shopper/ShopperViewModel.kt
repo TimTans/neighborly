@@ -13,6 +13,7 @@ import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
 import com.example.android.data.model.Product
+import com.example.android.data.model.ProductNutrition
 import com.example.android.data.repository.GroceryListRepository
 import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.data.repository.toGroceryProductSummary
@@ -21,6 +22,8 @@ import com.example.android.data.repository.preferences.PreferenceRepository
 import com.example.android.data.repository.preferences.PreferenceState
 import com.example.android.data.repository.preferences.TransportMode
 import com.example.android.data.location.UserCoordinates
+import com.example.android.domain.wellness.WellnessViolation
+import com.example.android.domain.wellness.violations
 import com.example.android.viewmodel.route.RouteViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,7 +70,14 @@ data class ShopperUiState(
     val sheetProduct: Product? = null,
     val isLoadingSheetProduct: Boolean = false,
     val sheetProductError: String? = null,
-    val routeCreationError: String? = null
+    val routeCreationError: String? = null,
+    /**
+     * Per-`productId` nutrition cache, mirroring iOS `nutritionCache`
+     * (GroceryListView.swift:130). Keys present with a `null` value mean the
+     * server was queried and returned no nutrition payload — recording that
+     * absence prevents redundant refetches.
+     */
+    val nutritionCache: Map<String, ProductNutrition?> = emptyMap()
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -269,14 +279,18 @@ class ShopperViewModel @JvmOverloads constructor(
         sheetProductJob = viewModelScope.launch {
             api.getProduct(productId)
                 .onSuccess { product ->
+                    val updatedCache = uiState.nutritionCache + (productId to product.productNutrition)
                     if (uiState.productSheet?.productId == productId ||
                         uiState.itemSheet?.productId == productId
                     ) {
                         uiState = uiState.copy(
                             sheetProduct = product,
                             isLoadingSheetProduct = false,
-                            sheetProductError = null
+                            sheetProductError = null,
+                            nutritionCache = updatedCache
                         )
+                    } else {
+                        uiState = uiState.copy(nutritionCache = updatedCache)
                     }
                 }
                 .onFailure { error ->
@@ -290,6 +304,40 @@ class ShopperViewModel @JvmOverloads constructor(
                     }
                 }
         }
+    }
+
+    /**
+     * Lazily fetches and caches the [ProductNutrition] for [productId]. Mirrors
+     * iOS `loadNutrition(for:)` (GroceryListView.swift:131-148). No-ops if the
+     * key is already cached (even with a `null` value — that means we already
+     * fetched and the server has no nutrition for this product). Errors are
+     * swallowed silently because wellness chips are informational; a failed
+     * fetch should never block the UI or propagate an error to the user.
+     */
+    fun loadNutritionFor(productId: String) {
+        if (productId.isBlank()) return
+        if (uiState.nutritionCache.containsKey(productId)) return
+        viewModelScope.launch {
+            api.getProduct(productId)
+                .onSuccess { product ->
+                    uiState = uiState.copy(
+                        nutritionCache = uiState.nutritionCache + (productId to product.productNutrition)
+                    )
+                }
+        }
+    }
+
+    /**
+     * Returns the wellness violations for the cached nutrition of [productId]
+     * given the user's current preferences. Returns an empty list when
+     * [productId] is null/blank, when nutrition has not yet been fetched, or
+     * when the server returned no nutrition for that product.
+     */
+    fun violationsFor(productId: String?): List<WellnessViolation> {
+        if (productId.isNullOrBlank()) return emptyList()
+        if (!uiState.nutritionCache.containsKey(productId)) return emptyList()
+        val nutrition = uiState.nutritionCache[productId] ?: return emptyList()
+        return nutrition.violations(uiState.preferences)
     }
 
     fun refreshPrices() {
