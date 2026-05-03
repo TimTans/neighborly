@@ -105,8 +105,11 @@ fun AppScaffold(
                 viewModel = homeViewModel,
                 displayName = loginViewModel.uiState.value.displayName,
                 initials = loginViewModel.uiState.value.initials,
+                groceryListItemCount = shopperViewModel.uiState.groceryList.size,
+                activeRoute = routeViewModel.uiState.optimizedRoute,
                 onOpenPreferences = { destination = AppDestination.Preferences },
                 onSignOut = loginViewModel::signOut,
+                onStartTrip = { destination = AppDestination.Route },
                 modifier = Modifier.padding(innerPadding)
             )
 

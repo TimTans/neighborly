@@ -53,20 +53,33 @@ import androidx.compose.ui.unit.dp
 import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.ui.theme.NeighborlyShapes
 import com.example.android.ui.theme.NeighborlySpacing
+import com.example.android.viewmodel.home.DemoRouteStops
 import com.example.android.viewmodel.home.HomeUiState
 import com.example.android.viewmodel.home.HomeViewModel
 import com.example.android.viewmodel.home.RouteStop
+import com.example.android.viewmodel.home.previewStopsFrom
+import com.example.android.viewmodel.route.RoutePlan
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     displayName: String,
     initials: String,
+    groceryListItemCount: Int,
+    activeRoute: RoutePlan?,
     onOpenPreferences: () -> Unit,
     onSignOut: () -> Unit,
+    onStartTrip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val state = viewModel.uiState.copy(userName = displayName)
+    val baseState = viewModel.uiState
+    val state = baseState.copy(
+        userName = displayName,
+        itemsTracked = groceryListItemCount.toString(),
+        itemsTrackedLabel = "in your list",
+        optimizedStopsLabel = activeRoute?.stopCountLabel ?: baseState.optimizedStopsLabel
+    )
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -95,14 +108,16 @@ fun HomeScreen(
             ) {
                 HeroCard(
                     name = state.userName,
-                    savings = state.savingsThisTrip.removePrefix("$")
+                    activeRoute = activeRoute,
+                    fallbackSavings = state.savingsThisTrip.removePrefix("$"),
+                    onStartTrip = onStartTrip
                 )
 
                 MetricsGrid(state = state)
 
                 OptimizedRouteCard(
                     stopsLabel = state.optimizedStopsLabel,
-                    routeStops = state.routeStops
+                    activeRoute = activeRoute
                 )
             }
         }
@@ -208,7 +223,28 @@ private fun HomeTopBar(
 }
 
 @Composable
-private fun HeroCard(name: String, savings: String) {
+private fun HeroCard(
+    name: String,
+    activeRoute: RoutePlan?,
+    fallbackSavings: String,
+    onStartTrip: () -> Unit
+) {
+    val tripReady = activeRoute != null
+    val tagline = if (activeRoute != null) {
+        val storeCount = activeRoute.stops.size
+        val itemCount = activeRoute.itemCount
+        val totalCost = activeRoute.totalCost
+        if (totalCost != null) {
+            "Your optimized route is ready — $storeCount ${if (storeCount == 1) "store" else "stores"}, " +
+                "$itemCount ${if (itemCount == 1) "item" else "items"}, total ${formatCurrency(totalCost)}."
+        } else {
+            "Your optimized route is ready — $storeCount ${if (storeCount == 1) "store" else "stores"}, " +
+                "$itemCount ${if (itemCount == 1) "item" else "items"}."
+        }
+    } else {
+        "Your optimized route is ready — 3 stores, 12 items, saving $$fallbackSavings."
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = NeighborlyShapes.LargeCard,
@@ -227,7 +263,7 @@ private fun HeroCard(name: String, savings: String) {
                 color = Color.White
             )
             Text(
-                text = "Your optimized route is ready — 3 stores, 12 items, saving $$savings.",
+                text = tagline,
                 style = MaterialTheme.typography.bodySmall,
                 color = NeighborlyColors.GreenSoft
             )
@@ -237,13 +273,18 @@ private fun HeroCard(name: String, savings: String) {
                     .fillMaxWidth()
                     .height(44.dp)
                     .clip(NeighborlyShapes.Pill)
-                    .background(NeighborlyColors.Surface),
+                    .background(
+                        if (tripReady) NeighborlyColors.Surface else NeighborlyColors.Surface.copy(alpha = 0.5f)
+                    )
+                    .then(
+                        if (tripReady) Modifier.clickable { onStartTrip() } else Modifier
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "Start Trip →",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = NeighborlyColors.Green
+                    color = if (tripReady) NeighborlyColors.Green else NeighborlyColors.Green.copy(alpha = 0.5f)
                 )
             }
         }
@@ -264,7 +305,7 @@ private fun MetricsGrid(state: HomeUiState) {
         }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallMetricCard(modifier = Modifier.weight(1f), value = state.itemsTracked, label = "tracked", icon = Icons.Outlined.Inventory2, tint = NeighborlyColors.IconMuted)
+            SmallMetricCard(modifier = Modifier.weight(1f), value = state.itemsTracked, label = state.itemsTrackedLabel, icon = Icons.Outlined.Inventory2, tint = NeighborlyColors.IconMuted)
             SmallMetricCard(modifier = Modifier.weight(1f), value = state.alertsCount, label = "alerts", icon = Icons.Outlined.Notifications, tint = NeighborlyColors.IconMuted)
         }
     }
@@ -360,7 +401,22 @@ private fun SmallMetricCard(
 }
 
 @Composable
-private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) {
+private fun OptimizedRouteCard(stopsLabel: String, activeRoute: RoutePlan?) {
+    val stops: List<RouteStop>
+    val subtotalByIndex: Map<Int, Double?>
+    val isDemo: Boolean
+    if (activeRoute != null) {
+        stops = previewStopsFrom(activeRoute)
+        subtotalByIndex = activeRoute.stops.take(stops.size)
+            .mapIndexed { idx, stop -> (idx + 1) to stop.subtotal }
+            .toMap()
+        isDemo = false
+    } else {
+        stops = DemoRouteStops
+        subtotalByIndex = emptyMap()
+        isDemo = true
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = NeighborlyShapes.LargeCard,
@@ -375,9 +431,34 @@ private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(Icons.Rounded.Send, contentDescription = null, modifier = Modifier.size(18.dp), tint = NeighborlyColors.TextTertiary)
-                    Text("OPTIMIZED ROUTE", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.TextTertiary)
+                    Text(
+                        text = if (isDemo) "OPTIMIZED ROUTE (DEMO)" else "OPTIMIZED ROUTE",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = NeighborlyColors.TextTertiary
+                    )
                 }
                 Text(stopsLabel, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.Green)
+            }
+
+            if (activeRoute != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    activeRoute.totalCost?.let { cost ->
+                        Text(
+                            text = formatCurrency(cost),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = NeighborlyColors.Green
+                        )
+                    }
+                    Text(
+                        text = activeRoute.itemCountLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeighborlyColors.TextSecondary
+                    )
+                }
             }
 
             Box(
@@ -392,16 +473,25 @@ private fun OptimizedRouteCard(stopsLabel: String, routeStops: List<RouteStop>) 
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                routeStops.forEach { stop ->
+                stops.forEach { stop ->
                     RouteRow(
                         index = stop.index,
                         name = stop.name,
                         address = stop.address,
                         itemsLabel = stop.itemsLabel,
                         timeEstimate = stop.timeEstimate,
-                        distance = stop.distance
+                        distance = stop.distance,
+                        subtotal = subtotalByIndex[stop.index]
                     )
                 }
+            }
+
+            if (isDemo) {
+                Text(
+                    text = "Demo data — create a route from your list",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeighborlyColors.TextTertiary
+                )
             }
         }
     }
@@ -414,7 +504,8 @@ private fun RouteRow(
     address: String,
     itemsLabel: String,
     timeEstimate: String,
-    distance: String
+    distance: String,
+    subtotal: Double? = null
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -439,18 +530,33 @@ private fun RouteRow(
                     ) {
                         Text(itemsLabel, style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.Green)
                     }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(NeighborlyColors.OrangeSoft)
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(timeEstimate, style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.Orange)
+                    if (timeEstimate.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(NeighborlyColors.OrangeSoft)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(timeEstimate, style = MaterialTheme.typography.labelSmall, color = NeighborlyColors.Orange)
+                        }
                     }
                 }
             }
         }
 
-        Text(distance, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
+        Column(horizontalAlignment = Alignment.End) {
+            if (subtotal != null) {
+                Text(formatCurrency(subtotal), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = NeighborlyColors.Green)
+            }
+            Text(
+                text = if (distance.isEmpty()) "—" else distance,
+                style = MaterialTheme.typography.bodySmall,
+                color = NeighborlyColors.TextSecondary
+            )
+        }
     }
+}
+
+private fun formatCurrency(amount: Double): String {
+    return String.format(Locale.US, "$%.2f", amount)
 }
