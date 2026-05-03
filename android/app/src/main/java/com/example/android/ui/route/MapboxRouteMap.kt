@@ -51,11 +51,12 @@ import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
 import com.mapbox.maps.viewannotation.geometry
 import com.mapbox.maps.viewannotation.viewAnnotationOptions
+import com.example.android.ui.theme.NeighborlyColors
 
-private val PolylineGreen = Color(0xFF1FA86E)
-private val BadgeOrange = Color(0xFFE67E22)
-private val BadgeOrangeSoft = Color(0xFFFFF3E0)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
+private val PolylineGreen = NeighborlyColors.PolylineGreen
+private val BadgeOrange = NeighborlyColors.Orange
+private val BadgeOrangeSoft = NeighborlyColors.OrangeSoft
+private val NeighborlyGreen = NeighborlyColors.Green
 
 /**
  * Compose wrapper around the Mapbox Maps SDK matching the iOS

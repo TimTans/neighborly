@@ -41,14 +41,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.viewmodel.login.LoginUiState
 import com.example.android.viewmodel.login.LoginViewModel
 
-private val NeighborlyBackground = Color(0xFFF7F3EC)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
-private val NeighborlyError = Color(0xFFB3261E)
-private val NeighborlyMuted = Color(0xFF7C7C7C)
+private val NeighborlyBackground = NeighborlyColors.Background
+private val NeighborlyGreen = NeighborlyColors.Green
+private val NeighborlyGreenSoft = NeighborlyColors.GreenSoft
+private val NeighborlyError = NeighborlyColors.Error
+private val NeighborlyMuted = NeighborlyColors.TextMuted
 
 @Composable
 fun LoginScreen(viewModel: LoginViewModel) {
@@ -265,7 +266,7 @@ private fun LoginContent(
                 state.passwordResetError?.let { error ->
                     PasswordResetBanner(
                         message = error,
-                        background = Color(0xFFFCE8E6),
+                        background = NeighborlyColors.ErrorSoft,
                         textColor = NeighborlyError,
                         onDismiss = onClearPasswordResetMessages
                     )

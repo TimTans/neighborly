@@ -59,16 +59,17 @@ import com.example.android.data.location.UserCoordinates
 import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.ui.components.AllergenChip
 import com.example.android.ui.components.ProductImage
+import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.viewmodel.route.RouteViewModel
 import com.example.android.viewmodel.shopper.CatalogProduct
 import com.example.android.viewmodel.shopper.GroceryListItemUi
 import com.example.android.viewmodel.shopper.ShopperViewModel
 import kotlinx.coroutines.launch
 
-private val NeighborlyBackground = Color(0xFFF7F3EC)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
-private val NeighborlyOrange = Color(0xFFE67E22)
+private val NeighborlyBackground = NeighborlyColors.Background
+private val NeighborlyGreen = NeighborlyColors.Green
+private val NeighborlyGreenSoft = NeighborlyColors.GreenSoft
+private val NeighborlyOrange = NeighborlyColors.Orange
 
 @Composable
 fun GroceryListScreen(
@@ -169,7 +170,7 @@ fun GroceryListScreen(
             Text(
                 text = "Grocery List",
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF1A1A1A),
+                color = NeighborlyColors.TextPrimary,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
@@ -196,7 +197,7 @@ fun GroceryListScreen(
                         strokeWidth = 2.dp,
                         color = NeighborlyGreen
                     )
-                    Text("Searching products...", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4F7E6B))
+                    Text("Searching products...", style = MaterialTheme.typography.bodyMedium, color = NeighborlyColors.MapText)
                 }
             }
 
@@ -218,7 +219,7 @@ fun GroceryListScreen(
                 Text(
                     text = "No products found.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF777777),
+                    color = NeighborlyColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
@@ -257,7 +258,7 @@ fun GroceryListScreen(
                         state.refreshError.orEmpty()
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (state.refreshError == null) Color(0xFF4F7E6B) else MaterialTheme.colorScheme.error,
+                    color = if (state.refreshError == null) NeighborlyColors.MapText else MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
@@ -284,13 +285,13 @@ fun GroceryListScreen(
                         Text(
                             text = "Your grocery list is empty",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF1A1A1A),
+                            color = NeighborlyColors.TextPrimary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Text(
                             text = "Search above to add items.",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = Color(0xFF4F7E6B),
+                            color = NeighborlyColors.MapText,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
@@ -432,16 +433,16 @@ private fun SearchResultRow(
                 fallbackEmoji = product.categoryEmoji
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(product.name, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF1A1A1A))
+                Text(product.name, style = MaterialTheme.typography.bodyLarge, color = NeighborlyColors.TextPrimary)
                 Text(
                     text = listOfNotNull(product.brand, product.unitSize.takeIf { it.isNotBlank() }).joinToString(" / "),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF777777)
+                    color = NeighborlyColors.TextSecondary
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(product.price.formatPrice(), style = MaterialTheme.typography.bodyLarge, color = NeighborlyGreen)
-                Text(product.store ?: "Store pending", style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                Text(product.store ?: "Store pending", style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
             }
         }
         if (violations.isNotEmpty()) {
@@ -482,7 +483,7 @@ private fun GroceryItemCard(
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(item.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
-                    Text(item.unitSize, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                    Text(item.unitSize, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
                     Text("Best price: $${"%.2f".format(item.price)} at ${item.store}", style = MaterialTheme.typography.bodySmall, color = NeighborlyGreen)
                 }
 

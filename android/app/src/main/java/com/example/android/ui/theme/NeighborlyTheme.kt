@@ -18,6 +18,9 @@ object NeighborlyColors {
     val TextBody = Color(0xFF424242)
     val TextSecondary = Color(0xFF777777)
     val TextTertiary = Color(0xFF9E9E9E)
+    // Used for muted secondary text on the login card; intentionally distinct
+    // from TextSecondary (777777) to preserve the original visual.
+    val TextMuted = Color(0xFF7C7C7C)
     val IconMuted = Color(0xFF757575)
     val NavigationUnselected = Color(0xFF8E8E8E)
     val Border = Color(0xFFD7D7D7)
@@ -26,12 +29,29 @@ object NeighborlyColors {
 
     val Green = Color(0xFF0C6A4A)
     val GreenSoft = Color(0xFFE0F1E8)
+    // Mapbox walking polyline; brighter than the brand Green so it reads on
+    // satellite/street imagery (mirrors the iOS map polyline).
+    val PolylineGreen = Color(0xFF1FA86E)
     val Blue = Color(0xFF1E63C6)
     val BlueSoft = Color(0xFFE7F0FF)
     val Orange = Color(0xFFE67E22)
     val OrangeSoft = Color(0xFFFFF3E0)
     val MapGradientStart = Color(0xFFCCE7D9)
     val MapText = Color(0xFF4F7E6B)
+
+    // Functional / status colors.
+    val Error = Color(0xFFB3261E)
+    val ErrorSoft = Color(0xFFFCE8E6)
+    val OutOfStock = Color(0xB3D32F2F)
+
+    // Sheet / route surface accents (warm palette used on bottom sheets and
+    // route stop cards).
+    val SheetTextSecondary = Color(0xFF3F5A50)
+    val SheetTextMuted = Color(0xFF6B7B73)
+    val SheetDivider = Color(0xFFE5E0D6)
+    val RouteSummaryLabel = Color(0xFF5F6F67)
+    val RouteDivider = Color(0xFFE9E2D8)
+    val RouteStrike = Color(0xFF999999)
 }
 
 object NeighborlySpacing {
