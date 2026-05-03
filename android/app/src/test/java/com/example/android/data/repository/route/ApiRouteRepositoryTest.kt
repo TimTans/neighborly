@@ -5,6 +5,8 @@ import com.example.android.data.model.OptimizedRoute
 import com.example.android.data.model.Product
 import com.example.android.data.model.ProductCategory
 import com.example.android.data.model.ProductSearchResponse
+import com.example.android.data.model.RecipeRequestPayload
+import com.example.android.data.model.RecipeSuggestion
 import com.example.android.data.model.RouteItem
 import com.example.android.data.model.RouteStop
 import com.example.android.data.model.Store
@@ -64,6 +66,9 @@ private class FakeNeighborlyApi(
         lastAlternativesProductId = productId
         return alternativesResult
     }
+
+    override suspend fun generateRecipe(payload: RecipeRequestPayload): Result<RecipeSuggestion> =
+        Result.failure(UnsupportedOperationException("not used"))
 }
 
 class ApiRouteRepositoryTest {
