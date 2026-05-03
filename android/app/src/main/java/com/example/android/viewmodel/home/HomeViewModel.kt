@@ -4,8 +4,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.android.data.model.RecipeRequestPayload
+import com.example.android.data.model.RecipeSuggestion
+import com.example.android.data.repository.ApiRecipeRepository
+import com.example.android.data.repository.RecipeRepository
 import com.example.android.viewmodel.route.OptimizedRouteStop
 import com.example.android.viewmodel.route.RoutePlan
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 data class HomeMetric(
     val label: String,
@@ -35,7 +42,10 @@ data class HomeUiState(
     val itemsTrackedLabel: String = "tracked",
     val alertsCount: String = "3",
     val optimizedStopsLabel: String = "3 stops",
-    val metrics: List<HomeMetric> = emptyList()
+    val metrics: List<HomeMetric> = emptyList(),
+    val featuredRecipe: RecipeSuggestion? = null,
+    val isLoadingRecipe: Boolean = false,
+    val recipeError: String? = null
 )
 
 /**
@@ -80,7 +90,9 @@ private fun OptimizedRouteStop.itemsLabel(): String {
     }
 }
 
-class HomeViewModel : ViewModel() {
+class HomeViewModel(
+    private val recipeRepository: RecipeRepository = ApiRecipeRepository()
+) : ViewModel() {
     var uiState by mutableStateOf(
         HomeUiState(
             metrics = listOf(
@@ -94,4 +106,46 @@ class HomeViewModel : ViewModel() {
         )
     )
         private set
+
+    private var lastPayload: RecipeRequestPayload? = null
+    private var recipeJob: Job? = null
+
+    /**
+     * Generate (or refresh) the featured recipe. Mirrors iOS
+     * `HomeViewModel.loadRecipe` (HomeViewModel.swift:56-74): if the payload
+     * matches the last one served and we already have a recipe, skip the call
+     * to avoid a loading flicker. The repository also caches by payload, so a
+     * `force = true` always re-requests.
+     */
+    fun refreshRecipe(payload: RecipeRequestPayload, force: Boolean = false) {
+        if (!force && payload == lastPayload && uiState.featuredRecipe != null) {
+            return
+        }
+        recipeJob?.cancel()
+        uiState = uiState.copy(isLoadingRecipe = true, recipeError = null)
+        recipeJob = viewModelScope.launch {
+            val result = recipeRepository.generate(payload, force)
+            result.fold(
+                onSuccess = { recipe ->
+                    lastPayload = payload
+                    uiState = uiState.copy(
+                        featuredRecipe = recipe,
+                        isLoadingRecipe = false,
+                        recipeError = null
+                    )
+                },
+                onFailure = { error ->
+                    uiState = uiState.copy(
+                        isLoadingRecipe = false,
+                        recipeError = error.message ?: "Unable to generate a recipe right now."
+                    )
+                }
+            )
+        }
+    }
+
+    /** Force-regenerate the recipe regardless of cached payload. */
+    fun retryRecipe(payload: RecipeRequestPayload) {
+        refreshRecipe(payload, force = true)
+    }
 }

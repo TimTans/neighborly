@@ -13,6 +13,7 @@ import com.example.android.data.api.KtorNeighborlyApi
 import com.example.android.data.connectivity.ConnectivityManagerNetworkMonitor
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
+import com.example.android.data.repository.ApiRecipeRepository
 import com.example.android.data.repository.GroceryListRepository
 import com.example.android.ui.AppScaffold
 import com.example.android.ui.theme.NeighborlyTheme
@@ -24,7 +25,15 @@ import com.example.android.viewmodel.shopper.ShopperViewModel
 
 class MainActivity : ComponentActivity() {
     private val loginViewModel: LoginViewModel by viewModels()
-    private val homeViewModel: HomeViewModel by viewModels()
+    private val homeViewModel: HomeViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                HomeViewModel(
+                    recipeRepository = ApiRecipeRepository(api = KtorNeighborlyApi())
+                )
+            }
+        }
+    }
     private val routeViewModel: RouteViewModel by viewModels()
     private val shopperViewModel: ShopperViewModel by viewModels {
         viewModelFactory {

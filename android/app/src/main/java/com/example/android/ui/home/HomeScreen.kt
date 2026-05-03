@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.android.data.model.RecipeSuggestion
+import com.example.android.ui.home.components.FeaturedRecipeCard
 import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.ui.theme.NeighborlyShapes
 import com.example.android.ui.theme.NeighborlySpacing
@@ -71,6 +73,9 @@ fun HomeScreen(
     onOpenPreferences: () -> Unit,
     onSignOut: () -> Unit,
     onStartTrip: () -> Unit,
+    onRefreshRecipe: () -> Unit,
+    onRetryRecipe: () -> Unit,
+    onOpenRecipe: (RecipeSuggestion) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val baseState = viewModel.uiState
@@ -111,6 +116,15 @@ fun HomeScreen(
                     activeRoute = activeRoute,
                     fallbackSavings = state.savingsThisTrip.removePrefix("$"),
                     onStartTrip = onStartTrip
+                )
+
+                FeaturedRecipeCard(
+                    recipe = state.featuredRecipe,
+                    isLoading = state.isLoadingRecipe,
+                    error = state.recipeError,
+                    onRefresh = onRefreshRecipe,
+                    onRetry = onRetryRecipe,
+                    onOpen = onOpenRecipe
                 )
 
                 MetricsGrid(state = state)
