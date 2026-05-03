@@ -96,16 +96,23 @@ fun RouteScreen(
                 }
             }
 
+            val shopperState = shopperViewModel.uiState
             if (
                 state.selectedSwapProductId != null ||
                 state.isLoadingSwapOptions ||
-                state.swapErrorMessage != null
+                state.swapErrorMessage != null ||
+                shopperState.swapApplyError != null
             ) {
                 SwapAlternativesDialog(
                     isLoading = state.isLoadingSwapOptions,
                     options = state.swapOptions,
-                    errorMessage = state.swapErrorMessage,
-                    onDismiss = routeViewModel::dismissSwapAlternatives,
+                    // Surface load errors (RouteVM) and apply errors (ShopperVM) in the
+                    // same slot — apply errors are user-actionable in the same context.
+                    errorMessage = shopperState.swapApplyError ?: state.swapErrorMessage,
+                    onDismiss = {
+                        routeViewModel.dismissSwapAlternatives()
+                        shopperViewModel.clearSwapApplyError()
+                    },
                     onSelectOption = { option ->
                         // The route's selected swap product id is the *current* product id of
                         // the item being swapped. Resolve it back to the persisted grocery-list
@@ -122,6 +129,7 @@ fun RouteScreen(
                         val maxStops = preferences.maxStops.toInt().takeIf { it < 11 }
                         val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
                             .takeIf { preferences.maxTravelDistanceMiles.toInt() < 11 }
+                        shopperViewModel.clearSwapApplyError()
                         shopperViewModel.applySwap(currentItemId, option.productId) { newProductIds ->
                             routeViewModel.setPendingProducts(newProductIds)
                             routeViewModel.optimizePendingRoute(
@@ -129,8 +137,10 @@ fun RouteScreen(
                                 maxStops = maxStops,
                                 maxRadiusMiles = maxRadiusMiles,
                             )
+                            // Only dismiss after a successful swap; on failure the
+                            // dialog stays open so the user sees swapApplyError.
+                            routeViewModel.dismissSwapAlternatives()
                         }
-                        routeViewModel.dismissSwapAlternatives()
                     }
                 )
             }

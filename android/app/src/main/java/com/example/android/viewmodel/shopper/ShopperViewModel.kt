@@ -113,6 +113,7 @@ data class ShopperUiState(
     val isLoadingSheetProduct: Boolean = false,
     val sheetProductError: String? = null,
     val routeCreationError: String? = null,
+    val swapApplyError: String? = null,
     /**
      * Per-`productId` nutrition cache, mirroring iOS `nutritionCache`
      * (GroceryListView.swift:130). Keys present with a `null` value mean the
@@ -584,16 +585,20 @@ class ShopperViewModel @JvmOverloads constructor(
                     val updatedItems = groceryListRepository.replaceProduct(currentItemId, summary)
                     uiState = uiState.copy(
                         groceryList = updatedItems.toUiItems(),
-                        refreshError = null
+                        swapApplyError = null
                     )
                     onComplete(updatedItems.mapNotNull { it.productId })
                 }
                 .onFailure { error ->
                     uiState = uiState.copy(
-                        refreshError = error.message ?: "Unable to apply swap."
+                        swapApplyError = error.message ?: "Unable to apply swap."
                     )
                 }
         }
+    }
+
+    fun clearSwapApplyError() {
+        uiState = uiState.copy(swapApplyError = null)
     }
 
     fun updatePriority(priority: OptimizationPriority) {
