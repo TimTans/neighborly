@@ -15,6 +15,7 @@ import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSourc
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
 import com.example.android.data.repository.ApiRecipeRepository
 import com.example.android.data.repository.GroceryListRepository
+import com.example.android.data.repository.preferences.SupabasePreferenceRemoteRepository
 import com.example.android.ui.AppScaffold
 import com.example.android.ui.theme.NeighborlyTheme
 import com.example.android.ui.login.LoginScreen
@@ -46,7 +47,8 @@ class MainActivity : ComponentActivity() {
                     ),
                     preferenceRepository = SharedPreferencesPreferenceRepository(app.applicationContext),
                     networkMonitor = ConnectivityManagerNetworkMonitor(app.applicationContext),
-                    api = KtorNeighborlyApi()
+                    api = KtorNeighborlyApi(),
+                    remotePreferenceRepository = SupabasePreferenceRemoteRepository()
                 )
             }
         }

@@ -31,6 +31,13 @@ data class LoginUiState(
     val infoMessage: String? = null,
     val displayName: String = "User",
     val initials: String = "U",
+    /**
+     * Supabase user UUID for the active session, or `null` when no session
+     * has been hydrated yet. Consumers use it as the `user_id` row key for
+     * cross-platform Postgrest reads/writes (see
+     * [com.example.android.data.repository.preferences.PreferenceRemoteRepository]).
+     */
+    val userId: String? = null,
     val passwordResetSent: Boolean = false,
     val passwordResetError: String? = null,
     val passwordResetSentToEmail: String? = null,
@@ -69,7 +76,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                         ?: "User",
                     initials = session?.user?.toInitials()
                         ?: storedInitials
-                        ?: "U"
+                        ?: "U",
+                    userId = session?.user?.id
                 )
             }
         }
@@ -147,7 +155,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                                 isLoggedIn = true,
                                 isLoading = false,
                                 displayName = user.toDisplayName(),
-                                initials = user.toInitials()
+                                initials = user.toInitials(),
+                                userId = user.id
                             )
                         }
                     } else {
@@ -252,7 +261,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     isLoggedIn = false,
                     password = "",
                     confirmPassword = "",
-                    infoMessage = null
+                    infoMessage = null,
+                    userId = null
                 )
             }
         }
@@ -277,7 +287,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 isLoggedIn = session != null || authPrefs.getBoolean(KEY_IS_LOGGED_IN, false),
                 isLoading = false,
                 displayName = displayName,
-                initials = initials
+                initials = initials,
+                userId = user?.id ?: it.userId
             )
         }
     }

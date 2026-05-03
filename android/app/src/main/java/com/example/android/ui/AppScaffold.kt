@@ -160,6 +160,7 @@ fun AppScaffold(
 
             AppDestination.Preferences -> PreferencesScreen(
                 shopperViewModel = shopperViewModel,
+                userId = loginViewModel.uiState.value.userId,
                 onBack = { destination = AppDestination.Home },
                 modifier = Modifier.padding(innerPadding)
             )

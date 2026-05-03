@@ -18,6 +18,7 @@ import com.example.android.data.repository.GroceryListRepository
 import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.data.repository.toGroceryProductSummary
 import com.example.android.data.repository.preferences.OptimizationPriority
+import com.example.android.data.repository.preferences.PreferenceRemoteRepository
 import com.example.android.data.repository.preferences.PreferenceRepository
 import com.example.android.data.repository.preferences.PreferenceState
 import com.example.android.data.repository.preferences.TransportMode
@@ -127,7 +128,26 @@ data class ShopperUiState(
      * [ShopperViewModel.dismissRouteWarnings] (cancel). Mirrors iOS
      * `wellnessWarnings` (GroceryListView.swift:678-693).
      */
-    val pendingRouteWarnings: List<WarningItem>? = null
+    val pendingRouteWarnings: List<WarningItem>? = null,
+    /**
+     * Set after the first successful (or attempted) `fetch` against Supabase
+     * for the active session — guards against the screen overlaying remote
+     * values on top of in-progress local edits whenever the user revisits the
+     * Preferences screen. Mirrors the iOS `appearedOnce` pattern in
+     * PreferencesView.swift:360-385.
+     */
+    val hasReconciledRemote: Boolean = false,
+    /**
+     * Most recent remote-sync error, or `null` after a successful
+     * fetch/save. The Preferences screen surfaces this near the wellness
+     * card so the user knows when changes failed to upload.
+     */
+    val remoteSyncError: String? = null,
+    /**
+     * `true` while the most recent local edit has been pushed to Supabase
+     * successfully and not yet superseded. Used to render a "Synced" hint.
+     */
+    val isRemoteSynced: Boolean = false
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -142,7 +162,13 @@ class ShopperViewModel @JvmOverloads constructor(
         application.applicationContext
     ),
     private val networkMonitor: NetworkMonitor? = null,
-    private val api: NeighborlyApi = KtorNeighborlyApi()
+    private val api: NeighborlyApi = KtorNeighborlyApi(),
+    /**
+     * Remote-sync repo. `null` is allowed so unit tests don't need to stand
+     * up a Supabase client. In production [MainActivity] wires the
+     * `SupabasePreferenceRemoteRepository` singleton.
+     */
+    private val remotePreferenceRepository: PreferenceRemoteRepository? = null
 ) : AndroidViewModel(application) {
     var uiState by mutableStateOf(ShopperUiState())
         private set
@@ -647,9 +673,118 @@ class ShopperViewModel @JvmOverloads constructor(
 
     private fun updatePreferences(transform: (PreferenceState) -> PreferenceState) {
         val updatedPreferences = transform(uiState.preferences)
-        uiState = uiState.copy(preferences = updatedPreferences)
+        // Mark as not-yet-synced; the remote save below resets the flag once
+        // the upsert returns. Local writes always win locally — even if the
+        // network call fails the next launch loads from disk.
+        uiState = uiState.copy(
+            preferences = updatedPreferences,
+            isRemoteSynced = false
+        )
         viewModelScope.launch(Dispatchers.IO) {
             preferenceRepository.savePreferences(updatedPreferences)
+        }
+        // Fan out to Supabase if a userId is known. We capture it eagerly
+        // because edits during sign-out are common during dev and we don't
+        // want a stale id surfacing in the upsert. Errors land on
+        // `remoteSyncError` for the screen to render.
+        val userId = pendingRemoteUserId
+        val repo = remotePreferenceRepository
+        if (userId != null && repo != null) {
+            viewModelScope.launch {
+                repo.save(updatedPreferences, userId)
+                    .onSuccess {
+                        uiState = uiState.copy(
+                            isRemoteSynced = true,
+                            remoteSyncError = null
+                        )
+                    }
+                    .onFailure { error ->
+                        uiState = uiState.copy(
+                            isRemoteSynced = false,
+                            remoteSyncError = error.message
+                                ?: "Could not sync preferences."
+                        )
+                    }
+            }
+        }
+    }
+
+    /**
+     * Tracks the active Supabase user id so [updatePreferences] can fan out
+     * to the remote repo without each toggle handler having to plumb it. Set
+     * by [fetchRemotePreferences].
+     */
+    private var pendingRemoteUserId: String? = null
+
+    /**
+     * Reconcile local preferences with Supabase. Idempotent within a session:
+     * subsequent calls no-op once [ShopperUiState.hasReconciledRemote] is
+     * true so a slider drag isn't clobbered by an out-of-order remote
+     * payload. The Preferences screen invokes this on first composition.
+     *
+     * On fetch failure we keep the local state untouched and surface the
+     * error via [ShopperUiState.remoteSyncError].
+     */
+    fun fetchRemotePreferences(userId: String) {
+        if (userId.isBlank()) return
+        pendingRemoteUserId = userId
+        if (uiState.hasReconciledRemote) return
+        val repo = remotePreferenceRepository ?: run {
+            // No remote repo (tests / disabled build) — mark reconciled so the
+            // screen doesn't keep retrying.
+            uiState = uiState.copy(hasReconciledRemote = true)
+            return
+        }
+        viewModelScope.launch {
+            repo.fetch(userId)
+                .onSuccess { remote ->
+                    if (remote != null) {
+                        uiState = uiState.copy(
+                            preferences = remote,
+                            hasReconciledRemote = true,
+                            remoteSyncError = null,
+                            isRemoteSynced = true
+                        )
+                        // Persist the merged state to disk so the next cold
+                        // launch starts in sync even when offline.
+                        viewModelScope.launch(Dispatchers.IO) {
+                            preferenceRepository.savePreferences(remote)
+                        }
+                    } else {
+                        // First-time user: nothing on the server yet. Push
+                        // the local defaults up so iOS can read them.
+                        uiState = uiState.copy(
+                            hasReconciledRemote = true,
+                            remoteSyncError = null
+                        )
+                        repo.save(uiState.preferences, userId)
+                            .onSuccess {
+                                uiState = uiState.copy(isRemoteSynced = true)
+                            }
+                            .onFailure { error ->
+                                uiState = uiState.copy(
+                                    remoteSyncError = error.message
+                                        ?: "Could not sync preferences."
+                                )
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    // Keep local state, mark reconciled so we don't loop on
+                    // repeated screen opens, surface the error.
+                    uiState = uiState.copy(
+                        hasReconciledRemote = true,
+                        remoteSyncError = error.message
+                            ?: "Could not load preferences."
+                    )
+                }
+        }
+    }
+
+    /** Clear the transient sync banner once the user has acknowledged it. */
+    fun clearRemoteSyncError() {
+        if (uiState.remoteSyncError != null) {
+            uiState = uiState.copy(remoteSyncError = null)
         }
     }
 
