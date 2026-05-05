@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,10 +52,10 @@ private enum class AppDestination {
 fun AppScaffold(
     loginViewModel: LoginViewModel,
     homeViewModel: HomeViewModel,
-    shopperViewModel: ShopperViewModel
+    shopperViewModel: ShopperViewModel,
+    routeViewModel: RouteViewModel
 ) {
     var destination by rememberSaveable { mutableStateOf(AppDestination.Home) }
-    val routeViewModel = remember { RouteViewModel() }
 
     val currentTab = when (destination) {
         AppDestination.Home -> MainTab.Home
@@ -113,11 +112,14 @@ fun AppScaffold(
 
             AppDestination.Lists -> GroceryListScreen(
                 shopperViewModel = shopperViewModel,
+                routeViewModel = routeViewModel,
+                onNavigateToRoute = { destination = AppDestination.Route },
                 modifier = Modifier.padding(innerPadding)
             )
 
             AppDestination.Route -> RouteScreen(
                 routeViewModel = routeViewModel,
+                shopperViewModel = shopperViewModel,
                 modifier = Modifier.padding(innerPadding)
             )
 

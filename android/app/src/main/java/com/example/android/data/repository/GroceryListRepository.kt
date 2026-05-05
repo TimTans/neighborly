@@ -1,7 +1,10 @@
 package com.example.android.data.repository
 
+import com.example.android.data.api.KtorNeighborlyApi
+import com.example.android.data.api.NeighborlyApi
 import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.GroceryListLocalDataSource
+import com.example.android.data.model.Product
 import java.util.UUID
 
 data class GroceryProductSummary(
@@ -15,6 +18,20 @@ data class GroceryProductSummary(
     val categoryEmoji: String = "\uD83D\uDED2",
     val imageUrl: String? = null
 )
+
+internal fun Product.toGroceryProductSummary(): GroceryProductSummary {
+    return GroceryProductSummary(
+        productId = id,
+        upc = upc,
+        name = name,
+        brand = brand,
+        unitSize = unitSize,
+        bestPrice = bestPrice,
+        bestStoreName = bestPriceStoreName,
+        categoryEmoji = productCategories.emoji,
+        imageUrl = imageUrl
+    )
+}
 
 interface GroceryProductSearchGateway {
     suspend fun searchProducts(query: String): Result<List<GroceryProductSummary>>
@@ -55,9 +72,31 @@ class LocalFallbackGroceryProductSearchGateway : GroceryProductSearchGateway {
     }
 }
 
+class ApiGroceryProductSearchGateway(
+    private val api: NeighborlyApi = KtorNeighborlyApi()
+) : GroceryProductSearchGateway {
+    override suspend fun searchProducts(query: String): Result<List<GroceryProductSummary>> {
+        return api.searchProducts(query)
+            .map { response -> response.data.map { it.toGroceryProductSummary() } }
+    }
+
+    override suspend fun refreshProducts(productIds: List<String>): Result<List<GroceryProductSummary>> {
+        if (productIds.isEmpty()) return Result.success(emptyList())
+
+        val refreshedProducts = mutableListOf<GroceryProductSummary>()
+        productIds.distinct().forEach { productId ->
+            api.getProduct(productId)
+                .onSuccess { product -> refreshedProducts += product.toGroceryProductSummary() }
+                .onFailure { error -> return Result.failure(error) }
+        }
+
+        return Result.success(refreshedProducts)
+    }
+}
+
 class GroceryListRepository(
     private val localDataSource: GroceryListLocalDataSource,
-    private val productSearchGateway: GroceryProductSearchGateway = LocalFallbackGroceryProductSearchGateway()
+    private val productSearchGateway: GroceryProductSearchGateway = ApiGroceryProductSearchGateway()
 ) {
     fun loadItems(): List<GroceryListItemRecord> = localDataSource.loadItems()
 
@@ -103,6 +142,26 @@ class GroceryListRepository(
         }
         localDataSource.saveItems(updatedItems)
         return updatedItems
+    }
+
+    fun replaceProduct(
+        currentItemId: String,
+        replacement: GroceryProductSummary
+    ): List<GroceryListItemRecord> {
+        val items = localDataSource.loadItems().toMutableList()
+        val index = items.indexOfFirst { it.id == currentItemId }
+        if (index == -1) return items
+        val current = items[index]
+        items[index] = current.copy(
+            productId = replacement.productId,
+            upc = replacement.upc,
+            name = replacement.name,
+            unitSize = replacement.unitSize.ifBlank { current.unitSize },
+            store = replacement.bestStoreName.orEmpty(),
+            price = replacement.bestPrice ?: current.price
+        )
+        localDataSource.saveItems(items)
+        return items
     }
 
     fun deleteItem(id: String): List<GroceryListItemRecord> {
