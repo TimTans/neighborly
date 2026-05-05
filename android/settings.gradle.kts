@@ -24,11 +24,11 @@ dependencyResolutionManagement {
             credentials {
                 username = "mapbox"
                 password = (rootProject.projectDir.resolve(".env").let { if (it.exists()) it.readLines() else emptyList() })
-                    .firstOrNull { it.startsWith("MAPBOX_DOWNLOADS_TOKEN=") }
+                    .firstOrNull { it.startsWith("MAPBOX_ACCESS_TOKEN") }
                     ?.substringAfter("=")
                     ?.trim()
                     ?.removeSurrounding("\"")
-                    ?: System.getenv("MAPBOX_DOWNLOADS_TOKEN")
+                    ?: System.getenv("MAPBOX_ACCESS_TOKEN")
                     ?: ""
             }
         }
