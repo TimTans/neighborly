@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CoreLocation
 
 struct HomeMetric: Identifiable {
     let id = UUID()
@@ -53,8 +54,12 @@ final class HomeViewModel {
         HomeRouteStop(index: 3, name: "Costco", address: "976 3rd Ave", distance: "2.4 mi", timeEstimate: "15 min", itemsLabel: "2 items")
     ]
 
-    func loadRecipe(using preferences: Preferences, force: Bool = false) async {
-        let payload = preferences.recipeRequestPayload
+    func loadRecipe(
+        using preferences: Preferences,
+        userLocation: CLLocation? = nil,
+        force: Bool = false
+    ) async {
+        let payload = preferences.recipeRequestPayload(userLocation: userLocation)
         guard force || payload != lastRecipeRequest || featuredRecipe == nil else {
             return
         }
@@ -64,7 +69,10 @@ final class HomeViewModel {
         lastRecipeRequest = payload
 
         do {
-            featuredRecipe = try await APIService.generateRecipe(preferences: preferences)
+            featuredRecipe = try await APIService.generateRecipe(
+                preferences: preferences,
+                userLocation: userLocation
+            )
         } catch {
             featuredRecipe = nil
             recipeError = error.localizedDescription
