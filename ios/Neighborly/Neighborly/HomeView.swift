@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @State private var showPreferences = false
     @State private var selectedRecipe: RecipeSuggestion?
+    @State private var locationHelper = LocationHelper()
 
     private var displayName: String {
         let user = authController.currentUser
@@ -36,6 +37,7 @@ struct HomeView: View {
                     metricsGrid
                     optimizedRouteCard
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
                 .padding(.bottom, 24)
@@ -48,7 +50,11 @@ struct HomeView: View {
                 RecipeDetailView(recipe: recipe)
             }
             .task(id: preferencesStore.preferences) {
-                await viewModel.loadRecipe(using: preferencesStore.preferences)
+                let userLocation = await locationHelper.requestLocation()
+                await viewModel.loadRecipe(
+                    using: preferencesStore.preferences,
+                    userLocation: userLocation
+                )
             }
         }
     }
@@ -153,7 +159,9 @@ struct HomeView: View {
                     )
                 )
 
-            // Decorative background circles
+            // Decorative background circles. Offsets push them past the
+            // rounded-rect bounds; the .clipShape below confines them so
+            // the ScrollView never rubber-bands horizontally.
             Circle()
                 .fill(Color.white.opacity(0.05))
                 .frame(width: 170, height: 170)
@@ -209,6 +217,7 @@ struct HomeView: View {
             }
             .padding(22)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 30))
     }
 
     // MARK: - Metrics Grid
@@ -224,8 +233,10 @@ struct HomeView: View {
 
                 Button {
                     Task {
+                        let userLocation = await locationHelper.requestLocation()
                         await viewModel.loadRecipe(
                             using: preferencesStore.preferences,
+                            userLocation: userLocation,
                             force: true
                         )
                     }
@@ -262,11 +273,13 @@ struct HomeView: View {
                             .font(.system(size: 24, weight: .heavy, design: .serif))
                             .foregroundStyle(NeighborlyTheme.textPrimary)
                             .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         Text(recipe.summary)
                             .font(.system(size: 15))
                             .foregroundStyle(NeighborlyTheme.textSecondary)
                             .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(Array(recipe.whyItMatches.prefix(3).enumerated()), id: \.offset) { _, reason in
@@ -328,12 +341,13 @@ struct HomeView: View {
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(NeighborlyTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 
     private func reasonCard(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(NeighborlyTheme.green)

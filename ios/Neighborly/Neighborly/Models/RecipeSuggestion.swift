@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 struct NutritionTargetsPayload: Codable, Equatable, Hashable {
     let cholesterol: String?
@@ -10,12 +11,37 @@ struct RecipeRequestPayload: Codable, Equatable, Hashable {
     let dietaryPreferences: [String]
     let avoidIngredients: [String]
     let nutritionTargets: NutritionTargetsPayload?
+    let userLat: Double?
+    let userLng: Double?
+    let maxRadiusMiles: Double?
 
     enum CodingKeys: String, CodingKey {
         case dietaryPreferences = "dietary_preferences"
         case avoidIngredients = "avoid_ingredients"
         case nutritionTargets = "nutrition_targets"
+        case userLat = "user_lat"
+        case userLng = "user_lng"
+        case maxRadiusMiles = "max_radius_miles"
     }
+}
+
+struct RecipeIngredient: Codable, Equatable, Hashable, Identifiable {
+    let name: String
+    let quantity: String
+    let productId: String?
+    let fromCatalog: Bool
+    let storeName: String?
+    let price: Double?
+    let imageUrl: String?
+    let categorySlug: String?
+
+    var id: String {
+        if let productId, !productId.isEmpty { return productId }
+        return name + quantity
+    }
+
+    /// Emoji fallback when image is missing — same map used by ProductCategory.
+    var emoji: String { ProductCategory.emoji(for: categorySlug) }
 }
 
 struct RecipeSuggestion: Codable, Identifiable, Equatable, Hashable {
@@ -25,7 +51,7 @@ struct RecipeSuggestion: Codable, Identifiable, Equatable, Hashable {
     let prepMinutes: Int
     let cookMinutes: Int
     let servings: Int
-    let ingredients: [String]
+    let ingredients: [RecipeIngredient]
     let steps: [String]
     let nutritionNotes: [String]
 
@@ -33,7 +59,10 @@ struct RecipeSuggestion: Codable, Identifiable, Equatable, Hashable {
 }
 
 extension Preferences {
-    var recipeRequestPayload: RecipeRequestPayload {
+    /// Build the recipe request payload, embedding the user's coordinates and
+    /// maximum travel radius so the backend can filter the LLM's product
+    /// catalog to items the shopper can actually reach.
+    func recipeRequestPayload(userLocation: CLLocation? = nil) -> RecipeRequestPayload {
         let dietaryPreferences = [
             dietVegan ? "vegan" : nil,
             dietGlutenFree ? "gluten_free" : nil,
@@ -63,7 +92,10 @@ extension Preferences {
         return RecipeRequestPayload(
             dietaryPreferences: dietaryPreferences,
             avoidIngredients: avoidIngredients,
-            nutritionTargets: nutritionTargets?.isEmpty == true ? nil : nutritionTargets
+            nutritionTargets: nutritionTargets?.isEmpty == true ? nil : nutritionTargets,
+            userLat: userLocation?.coordinate.latitude,
+            userLng: userLocation?.coordinate.longitude,
+            maxRadiusMiles: userLocation == nil ? nil : maxTravelDistanceMiles
         )
     }
 }

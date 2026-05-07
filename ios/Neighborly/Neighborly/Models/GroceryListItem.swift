@@ -40,4 +40,16 @@ final class GroceryListItem {
             productId: result.id
         )
     }
+
+    /// Add a recipe ingredient that's been resolved to a real catalog product.
+    /// Falls back to ingredient.name if catalog metadata is missing.
+    convenience init(from ingredient: RecipeIngredient) {
+        self.init(
+            name: ingredient.name,
+            price: ingredient.price ?? 0,
+            unitSize: ingredient.quantity,
+            upc: "",
+            productId: ingredient.productId
+        )
+    }
 }

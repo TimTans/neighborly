@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routes import recipes
-from app.services.recipe_service import GenerateRecipeResponse
+from app.services.recipe_service import GenerateRecipeResponse, RecipeIngredient
 
 
 client = TestClient(app)
@@ -17,7 +17,24 @@ def test_generate_recipe_route_returns_structured_payload(monkeypatch):
             prep_minutes=10,
             cook_minutes=30,
             servings=4,
-            ingredients=["1 cup lentils", "4 cups unsalted vegetable broth"],
+            ingredients=[
+                RecipeIngredient(
+                    name="Lentils",
+                    quantity="1 cup",
+                    product_id="lentil-1",
+                    from_catalog=True,
+                    store_name="ShopRite",
+                    price=2.49,
+                ),
+                RecipeIngredient(
+                    name="Salt",
+                    quantity="to taste",
+                    product_id=None,
+                    from_catalog=False,
+                    store_name=None,
+                    price=None,
+                ),
+            ],
             steps=["Rinse lentils.", "Simmer all ingredients until tender."],
             nutrition_notes=["Use unsalted broth to control sodium."],
         )

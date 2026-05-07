@@ -73,6 +73,66 @@ def test_to_slim_row_picks_lowest_in_stock_price():
     assert slim["category_slug"] == "milk"
 
 
+def test_to_slim_row_filters_by_radius():
+    """when user location + max radius are passed, far-away stores are skipped."""
+    # Manhattan user; near store ~1mi, far store ~30mi
+    row = {
+        "id": "p1",
+        "name": "Bread",
+        "brand": "Brand",
+        "image_url": None,
+        "unit_size": "1 loaf",
+        "upc": None,
+        "product_categories": {"slug": "bread"},
+        "store_products": [
+            # near store: cheap and in radius
+            {
+                "price": 2.99, "sale_price": None, "in_stock": True,
+                "stores": {"name": "Near Bakery", "lat": 40.7300, "lng": -73.9980},
+            },
+            # far store: cheaper but outside radius
+            {
+                "price": 1.99, "sale_price": None, "in_stock": True,
+                "stores": {"name": "Far Bakery", "lat": 41.2000, "lng": -73.9000},
+            },
+        ],
+        "product_nutrition": None,
+    }
+
+    in_radius = product_service._to_slim_row(
+        row, user_lat=40.7300, user_lng=-74.0000, max_radius_miles=10
+    )
+    assert in_radius["best_price"] == 2.99
+    assert in_radius["best_price_store_name"] == "Near Bakery"
+
+    no_radius = product_service._to_slim_row(row)
+    assert no_radius["best_price"] == 1.99  # picks cheaper without filter
+    assert no_radius["best_price_store_name"] == "Far Bakery"
+
+
+def test_to_slim_row_returns_none_price_when_all_stores_out_of_radius():
+    row = {
+        "id": "p1",
+        "name": "Specialty",
+        "brand": None,
+        "image_url": None,
+        "unit_size": "1 ea",
+        "upc": None,
+        "product_categories": None,
+        "store_products": [
+            {
+                "price": 5.00, "sale_price": None, "in_stock": True,
+                "stores": {"name": "Far", "lat": 42.0, "lng": -73.0},
+            },
+        ],
+        "product_nutrition": None,
+    }
+    slim = product_service._to_slim_row(
+        row, user_lat=40.7, user_lng=-74.0, max_radius_miles=5
+    )
+    assert slim["best_price"] is None
+
+
 def test_to_slim_row_handles_missing_data():
     row = {
         "id": "p1",

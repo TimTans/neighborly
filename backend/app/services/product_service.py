@@ -5,7 +5,23 @@ all functions return plain dicts (supabase response data).
 the route layer handles serialization to pydantic response models.
 """
 
+import math
+
 from app.core.supabase import get_supabase
+
+
+def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """great-circle distance between two lat/lng points in miles."""
+    R = 3958.8  # earth radius in miles
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlng / 2) ** 2
+    )
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 async def search_products(
@@ -49,6 +65,48 @@ async def search_products(
     return {"data": result.data, "count": result.count}
 
 
+async def fetch_recipe_catalog(
+    limit: int = 2000,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
+    max_radius_miles: float | None = None,
+) -> list[dict]:
+    """
+    fetch a slim view of in-stock products for use as recipe-generation context.
+
+    one row per product, carrying just enough for the LLM to pick sensibly:
+    id, name, brand, category slug, best in-stock price, the store with that
+    price, and the four allergen flags. the recipe service formats these as
+    a compact line per product before injection into the prompt.
+
+    when user_lat/user_lng/max_radius_miles are all provided, products whose
+    nearest in-stock store falls outside the radius are excluded — keeps the
+    LLM from suggesting items the shopper can't reach.
+    """
+    sb = get_supabase()
+
+    result = sb.table("products").select(
+        "id, name, brand, image_url, "
+        "product_categories(slug), "
+        "store_products(price, sale_price, in_stock, stores(name, lat, lng)), "
+        "product_nutrition(contains_dairy, contains_peanuts, "
+        "contains_shellfish, contains_wheat)"
+    ).limit(limit).execute()
+
+    catalog: list[dict] = []
+    for row in result.data or []:
+        slim = _to_slim_row(
+            row,
+            user_lat=user_lat,
+            user_lng=user_lng,
+            max_radius_miles=max_radius_miles,
+        )
+        if slim["best_price"] is None:
+            continue  # skip products with no in-radius in-stock offering
+        catalog.append(slim)
+    return catalog
+
+
 async def search_products_slim(
     query: str | None = None,
     page: int = 1,
@@ -84,19 +142,41 @@ async def search_products_slim(
     return {"data": slim_rows, "count": result.count}
 
 
-def _to_slim_row(row: dict) -> dict:
-    """flatten a supabase row into a slim search result."""
+def _to_slim_row(
+    row: dict,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
+    max_radius_miles: float | None = None,
+) -> dict:
+    """flatten a supabase row into a slim search result.
+
+    when all three radius args are provided, store_products whose store is
+    outside max_radius_miles of (user_lat, user_lng) are skipped for the
+    purpose of computing best_price. products with no in-radius offering end
+    up with best_price=None and the caller can drop them.
+    """
+    use_radius = (
+        user_lat is not None and user_lng is not None and max_radius_miles is not None
+    )
+
     best_price: float | None = None
     best_store: str | None = None
     for sp in row.get("store_products") or []:
         if not sp.get("in_stock"):
             continue
+        stores = sp.get("stores") or {}
+        if use_radius:
+            slat = stores.get("lat")
+            slng = stores.get("lng")
+            if slat is None or slng is None:
+                continue
+            if _haversine_miles(user_lat, user_lng, slat, slng) > max_radius_miles:
+                continue
         eff = sp.get("sale_price") if sp.get("sale_price") is not None else sp.get("price")
         if eff is None:
             continue
         if best_price is None or eff < best_price:
             best_price = eff
-            stores = sp.get("stores") or {}
             best_store = stores.get("name")
 
     cat = row.get("product_categories") or {}
