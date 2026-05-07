@@ -28,9 +28,11 @@ enum APIService {
         query: String,
         page: Int = 1,
         pageSize: Int = 50
-    ) async throws -> ProductSearchResponse {
+    ) async throws -> ProductSearchResultsResponse {
         var components = URLComponents(
-            url: AppConfig.apiBaseURL.appendingPathComponent("products"),
+            url: AppConfig.apiBaseURL
+                .appendingPathComponent("products")
+                .appendingPathComponent("search"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
@@ -49,7 +51,7 @@ enum APIService {
             throw APIError.serverError(statusCode: http.statusCode)
         }
 
-        return try decoder.decode(ProductSearchResponse.self, from: data)
+        return try decoder.decode(ProductSearchResultsResponse.self, from: data)
     }
 
     static func getProduct(id: String) async throws -> Product {

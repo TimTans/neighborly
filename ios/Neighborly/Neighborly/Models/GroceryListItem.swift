@@ -30,4 +30,14 @@ final class GroceryListItem {
             productId: product.id
         )
     }
+
+    convenience init(from result: ProductSearchResult) {
+        self.init(
+            name: result.name,
+            price: result.bestPrice ?? 0,
+            unitSize: result.unitSize,
+            upc: result.upc ?? "",
+            productId: result.id
+        )
+    }
 }

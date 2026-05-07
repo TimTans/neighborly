@@ -91,7 +91,9 @@ struct ProductCategory: Codable, Identifiable, Hashable, Sendable {
     let slug: String
 
     /// Emoji fallback for products without images, keyed by category slug.
-    var emoji: String {
+    var emoji: String { Self.emoji(for: slug) }
+
+    static func emoji(for slug: String?) -> String {
         switch slug {
         case "milk":                    return "🥛"
         case "water":                   return "💧"
@@ -145,6 +147,34 @@ struct Store: Codable, Hashable, Sendable {
 
 struct ProductSearchResponse: Codable, Sendable {
     let data: [Product]
+    let count: Int
+}
+
+/// Slim product row returned by GET /products/search.
+/// Carries enough to render a search row; tap fetches the full Product.
+struct ProductSearchResult: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let brand: String?
+    let imageUrl: String?
+    let unitSize: String
+    let upc: String?
+    let categorySlug: String?
+    let bestPrice: Double?
+    let bestPriceStoreName: String?
+    let containsDairy: Bool?
+    let containsPeanuts: Bool?
+    let containsShellfish: Bool?
+    let containsWheat: Bool?
+
+    /// Emoji fallback derived from the same slug→emoji map used by ProductCategory.
+    var emoji: String {
+        ProductCategory.emoji(for: categorySlug)
+    }
+}
+
+struct ProductSearchResultsResponse: Codable, Sendable {
+    let data: [ProductSearchResult]
     let count: Int
 }
 

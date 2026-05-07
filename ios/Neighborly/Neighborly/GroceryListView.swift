@@ -116,7 +116,7 @@ struct GroceryListView: View {
     @AppStorage("cholesterolLimit")     private var savedCholesterolLimit: String = ""
     @AppStorage("sugarLimit")           private var savedSugarLimit: String = ""
     @State private var searchText = ""
-    @State private var searchResults: [Product] = []
+    @State private var searchResults: [ProductSearchResult] = []
     @State private var isSearching = false
     @State private var searchError: String?
     @State private var searchPage = 1
@@ -125,6 +125,7 @@ struct GroceryListView: View {
     @State private var selectedItem: GroceryListItem?
     @State private var selectedProduct: Product?
     @State private var searchDetailProduct: Product?
+    @State private var loadingDetailId: String?
     @State private var networkMonitor = NetworkMonitor()
     @State private var locationHelper = LocationHelper()
     @State private var nutritionCache: [String: ProductNutrition] = [:]
@@ -159,10 +160,10 @@ struct GroceryListView: View {
                         errorBanner(error)
                     }
 
-                    if isSearching {
-                        loadingView
-                    } else if !searchResults.isEmpty {
+                    if !searchResults.isEmpty {
                         searchResultsList
+                    } else if isSearching {
+                        loadingView
                     } else if !searchText.isEmpty && searchText.count >= 2 {
                         noResultsView
                     } else if items.isEmpty {
@@ -266,42 +267,49 @@ struct GroceryListView: View {
     private var searchResultsList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(searchResults) { product in
+                ForEach(searchResults) { result in
                     Button {
-                        searchDetailProduct = product
+                        Task { await openSearchDetail(for: result) }
                     } label: {
                         HStack(spacing: 12) {
-                            productThumbnail(product)
+                            searchResultThumbnail(result)
                                 .frame(width: 40, height: 40)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(product.name)
+                                Text(result.name)
                                     .font(.subheadline)
                                     .foregroundStyle(NeighborlyTheme.textPrimary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
-                                if let brand = product.brand {
+                                if let brand = result.brand {
                                     Text(brand)
                                         .font(.caption)
                                         .foregroundStyle(NeighborlyTheme.textSecondary)
                                 }
-                                Text(product.unitSize)
+                                Text(result.unitSize)
                                     .font(.caption)
                                     .foregroundStyle(NeighborlyTheme.textMuted)
-                                if let nutrition = product.productNutrition {
-                                    AllergenChips(nutrition: nutrition, prefs: currentPrefs)
-                                }
+                                AllergenChips(
+                                    containsDairy: result.containsDairy,
+                                    containsPeanuts: result.containsPeanuts,
+                                    containsShellfish: result.containsShellfish,
+                                    containsWheat: result.containsWheat,
+                                    prefs: currentPrefs
+                                )
                             }
 
                             Spacer()
 
                             HStack(spacing: 6) {
-                                if let price = product.bestPrice {
+                                if loadingDetailId == result.id {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else if let price = result.bestPrice {
                                     VStack(alignment: .trailing, spacing: 2) {
                                         Text(price, format: .currency(code: "USD"))
                                             .font(.subheadline.weight(.semibold))
                                             .foregroundStyle(NeighborlyTheme.green)
-                                        if let store = product.bestPriceStoreName {
+                                        if let store = result.bestPriceStoreName {
                                             Text(store)
                                                 .font(.caption2)
                                                 .foregroundStyle(NeighborlyTheme.textMuted)
@@ -309,18 +317,17 @@ struct GroceryListView: View {
                                     }
                                 }
 
-                                if product.storeProducts.count > 1 {
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2)
-                                        .foregroundStyle(NeighborlyTheme.textMuted)
-                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(NeighborlyTheme.textMuted)
                             }
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                     }
+                    .disabled(loadingDetailId != nil)
 
-                    if product.id != searchResults.last?.id {
+                    if result.id != searchResults.last?.id {
                         Divider()
                             .padding(.leading, 52)
                     }
@@ -346,7 +353,18 @@ struct GroceryListView: View {
     /// Shows the product image if available, otherwise a category emoji.
     @ViewBuilder
     private func productThumbnail(_ product: Product) -> some View {
-        if let imageUrl = product.imageUrl, let url = URL(string: imageUrl) {
+        thumbnail(imageUrl: product.imageUrl, emoji: product.productCategories.emoji)
+    }
+
+    /// Slim variant for search rows.
+    @ViewBuilder
+    private func searchResultThumbnail(_ result: ProductSearchResult) -> some View {
+        thumbnail(imageUrl: result.imageUrl, emoji: result.emoji)
+    }
+
+    @ViewBuilder
+    private func thumbnail(imageUrl: String?, emoji: String) -> some View {
+        if let imageUrl, let url = URL(string: imageUrl) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -354,11 +372,11 @@ struct GroceryListView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 default:
-                    categoryEmoji(product.productCategories.emoji)
+                    categoryEmoji(emoji)
                 }
             }
         } else {
-            categoryEmoji(product.productCategories.emoji)
+            categoryEmoji(emoji)
         }
     }
 
@@ -568,13 +586,13 @@ struct GroceryListView: View {
             return
         }
 
-        isSearching = true
-        searchError = nil
-        searchPage = 1
-
         try? await Task.sleep(for: .milliseconds(300))
 
         guard !Task.isCancelled else { return }
+
+        isSearching = true
+        searchError = nil
+        searchPage = 1
 
         do {
             let response = try await APIService.searchProducts(query: query)
@@ -592,6 +610,19 @@ struct GroceryListView: View {
         }
 
         isSearching = false
+    }
+
+    private func openSearchDetail(for result: ProductSearchResult) async {
+        guard loadingDetailId == nil else { return }
+        loadingDetailId = result.id
+        defer { loadingDetailId = nil }
+
+        do {
+            let full = try await APIService.getProduct(id: result.id)
+            searchDetailProduct = full
+        } catch {
+            searchError = "Couldn't load product details"
+        }
     }
 
     private func loadMoreResults() async {
@@ -1038,8 +1069,35 @@ struct ProductDetailSheet: View {
 // MARK: - Allergen Chips
 
 private struct AllergenChips: View {
-    let nutrition: ProductNutrition
+    let containsDairy: Bool?
+    let containsPeanuts: Bool?
+    let containsShellfish: Bool?
+    let containsWheat: Bool?
     let prefs: Preferences
+
+    init(
+        containsDairy: Bool?,
+        containsPeanuts: Bool?,
+        containsShellfish: Bool?,
+        containsWheat: Bool?,
+        prefs: Preferences
+    ) {
+        self.containsDairy = containsDairy
+        self.containsPeanuts = containsPeanuts
+        self.containsShellfish = containsShellfish
+        self.containsWheat = containsWheat
+        self.prefs = prefs
+    }
+
+    init(nutrition: ProductNutrition, prefs: Preferences) {
+        self.init(
+            containsDairy: nutrition.containsDairy,
+            containsPeanuts: nutrition.containsPeanuts,
+            containsShellfish: nutrition.containsShellfish,
+            containsWheat: nutrition.containsWheat,
+            prefs: prefs
+        )
+    }
 
     var body: some View {
         let chips = chips()
@@ -1060,10 +1118,10 @@ private struct AllergenChips: View {
 
     private func chips() -> [String] {
         var result: [String] = []
-        if prefs.avoidPeanuts   && nutrition.containsPeanuts   == true { result.append("🥜 Peanuts") }
-        if prefs.avoidDairy     && nutrition.containsDairy     == true { result.append("🥛 Dairy") }
-        if prefs.avoidShellfish && nutrition.containsShellfish == true { result.append("🦐 Shellfish") }
-        if prefs.avoidWheat     && nutrition.containsWheat     == true { result.append("🌾 Wheat") }
+        if prefs.avoidPeanuts   && containsPeanuts   == true { result.append("🥜 Peanuts") }
+        if prefs.avoidDairy     && containsDairy     == true { result.append("🥛 Dairy") }
+        if prefs.avoidShellfish && containsShellfish == true { result.append("🦐 Shellfish") }
+        if prefs.avoidWheat     && containsWheat     == true { result.append("🌾 Wheat") }
         return result
     }
 }

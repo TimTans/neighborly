@@ -49,6 +49,78 @@ async def search_products(
     return {"data": result.data, "count": result.count}
 
 
+async def search_products_slim(
+    query: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """
+    lightweight search for autocomplete-style use cases.
+
+    returns {"data": [...slim_products...], "count": total_matching}
+    where each slim product carries enough fields to render a search row
+    (name, brand, image, best price, allergen flags) but no nutrition
+    detail or per-store price breakdown — those load on tap via /products/{id}.
+    """
+    sb = get_supabase()
+    offset = (page - 1) * page_size
+
+    q = sb.table("products").select(
+        "id, name, brand, image_url, unit_size, upc, "
+        "product_categories(slug), "
+        "store_products(price, sale_price, in_stock, stores(name)), "
+        "product_nutrition(contains_dairy, contains_peanuts, "
+        "contains_shellfish, contains_wheat)",
+        count="exact",
+    )
+
+    if query:
+        q = q.ilike("name", f"%{query}%")
+
+    q = q.range(offset, offset + page_size - 1).order("name")
+    result = q.execute()
+
+    slim_rows = [_to_slim_row(row) for row in (result.data or [])]
+    return {"data": slim_rows, "count": result.count}
+
+
+def _to_slim_row(row: dict) -> dict:
+    """flatten a supabase row into a slim search result."""
+    best_price: float | None = None
+    best_store: str | None = None
+    for sp in row.get("store_products") or []:
+        if not sp.get("in_stock"):
+            continue
+        eff = sp.get("sale_price") if sp.get("sale_price") is not None else sp.get("price")
+        if eff is None:
+            continue
+        if best_price is None or eff < best_price:
+            best_price = eff
+            stores = sp.get("stores") or {}
+            best_store = stores.get("name")
+
+    cat = row.get("product_categories") or {}
+    nutr = row.get("product_nutrition") or {}
+    if isinstance(nutr, list):
+        nutr = nutr[0] if nutr else {}
+
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "brand": row.get("brand"),
+        "image_url": row.get("image_url"),
+        "unit_size": row.get("unit_size"),
+        "upc": row.get("upc"),
+        "category_slug": cat.get("slug") if isinstance(cat, dict) else None,
+        "best_price": best_price,
+        "best_price_store_name": best_store,
+        "contains_dairy": nutr.get("contains_dairy"),
+        "contains_peanuts": nutr.get("contains_peanuts"),
+        "contains_shellfish": nutr.get("contains_shellfish"),
+        "contains_wheat": nutr.get("contains_wheat"),
+    }
+
+
 async def get_product(product_id: str) -> dict | None:
     """get a single product with all store prices."""
     sb = get_supabase()

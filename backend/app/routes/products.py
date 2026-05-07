@@ -23,6 +23,26 @@ async def list_products(
     )
 
 
+@router.get("/search")
+async def search_products_slim(
+    q: str | None = Query(default=None, description="search by product name"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+):
+    """
+    lightweight product search for autocomplete-style use.
+
+    returns slim rows (id, name, image, best price, allergen flags) without
+    full nutrition or per-store price breakdowns. fetch /products/{id} on tap
+    to get the full record.
+    """
+    return await product_service.search_products_slim(
+        query=q,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.get("/{product_id}")
 async def get_product(product_id: str):
     """get product detail with prices at all stores."""
