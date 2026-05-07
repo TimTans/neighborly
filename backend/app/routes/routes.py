@@ -10,6 +10,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.services import google_routes
+from app.services.google_routes import GoogleRoutesError
 from app.services.route_service import (
     optimize_fewest_stops,
     optimize_lowest_cost,
@@ -26,6 +28,16 @@ class OptimizeRequest(BaseModel):
     mode: Literal["cost", "stops", "distance"] = "cost"
     max_stops: int | None = None
     max_radius_miles: float | None = None
+
+
+class Waypoint(BaseModel):
+    lat: float
+    lng: float
+
+
+class DirectionsRequest(BaseModel):
+    waypoints: list[Waypoint]
+    mode: Literal["walking", "driving", "transit"] = "walking"
 
 
 @router.post("/optimize")
@@ -65,3 +77,27 @@ async def optimize_route(body: OptimizeRequest):
             max_stops=body.max_stops,
             max_radius_miles=body.max_radius_miles,
         )
+
+
+@router.post("/directions")
+async def get_directions(body: DirectionsRequest):
+    """
+    fetch a route through the given waypoints from google routes api.
+
+    modes:
+    - walking: WALK profile, all waypoints in one call
+    - driving: DRIVE profile with traffic-aware routing
+    - transit: TRANSIT profile, stitched per-leg (transit doesn't accept
+      intermediate waypoints in a single request)
+
+    returns a normalized shape:
+    { coordinates: [[lng, lat], ...], legs: [...], total_distance_m, total_duration_s }
+    """
+    if len(body.waypoints) < 2:
+        raise HTTPException(status_code=400, detail="at least two waypoints required")
+
+    pts = [(wp.lat, wp.lng) for wp in body.waypoints]
+    try:
+        return await google_routes.compute_route(pts, body.mode)
+    except GoogleRoutesError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

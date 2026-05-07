@@ -17,12 +17,40 @@ import CoreLocation
 struct MapboxRouteMap: View {
     let stops: [RouteStop]
     var onStopSelected: ((Int?) -> Void)?
+    var onRouteChanged: ((MapboxDirectionsService.DirectionsRoute?, TransportMode) -> Void)?
+
+    @AppStorage("walkingEnabled")         private var walkingEnabled: Bool = true
+    @AppStorage("carEnabled")             private var carEnabled: Bool = true
+    @AppStorage("publicTransportEnabled") private var publicTransportEnabled: Bool = true
 
     @State private var viewport: Viewport = .styleDefault
     @State private var routeCoordinates: [CLLocationCoordinate2D] = []
     @State private var legInfos: [MapboxDirectionsService.RouteLeg] = []
     @State private var isZoomedToPin = false
+    @State private var selectedMode: TransportMode = .walking
+    @State private var isLoadingRoute = false
     private let locationManager = CLLocationManager()
+
+    private var enabledModes: [TransportMode] {
+        var modes: [TransportMode] = []
+        if walkingEnabled { modes.append(.walking) }
+        if carEnabled { modes.append(.car) }
+        if publicTransportEnabled { modes.append(.publicTransport) }
+        return modes.isEmpty ? [.walking] : modes
+    }
+
+    /// vivid route colors that read clearly on top of mapbox street tiles.
+    /// kept as UIColor so StyleColor renders consistently across iOS versions.
+    private var routeColor: UIColor {
+        switch selectedMode {
+        case .walking:         return UIColor(red: 0x00/255, green: 0xC8/255, blue: 0x53/255, alpha: 1)
+        case .car:             return UIColor(red: 0x1A/255, green: 0x73/255, blue: 0xE8/255, alpha: 1)
+        case .publicTransport: return UIColor(red: 0xFB/255, green: 0x8C/255, blue: 0x00/255, alpha: 1)
+        }
+    }
+
+    /// SwiftUI bridge for the picker capsule indicator.
+    private var routeColorSwiftUI: Color { Color(uiColor: routeColor) }
 
     private var storeCoordinates: [CLLocationCoordinate2D] {
         stops.compactMap { stop in
@@ -60,7 +88,7 @@ struct MapboxRouteMap: View {
                 let lineCoords = routeCoordinates.isEmpty ? storeCoordinates : routeCoordinates
                 if lineCoords.count >= 2 {
                     PolylineAnnotation(lineCoordinates: lineCoords)
-                        .lineColor(StyleColor(NeighborlyTheme.green))
+                        .lineColor(StyleColor(routeColor))
                         .lineWidth(4)
                         .lineOpacity(0.8)
                 }
@@ -80,6 +108,9 @@ struct MapboxRouteMap: View {
             .mapStyle(.streets)
             .onAppear {
                 locationManager.requestWhenInUseAuthorization()
+                if !enabledModes.contains(selectedMode) {
+                    selectedMode = enabledModes.first ?? .walking
+                }
                 fitToStops()
                 Task { await fetchRoute() }
             }
@@ -89,6 +120,17 @@ struct MapboxRouteMap: View {
                 fitToStops(animated: true)
                 Task { await fetchRoute() }
             }
+            .onChange(of: selectedMode) { _, _ in
+                routeCoordinates = []
+                legInfos = []
+                Task { await fetchRoute() }
+            }
+
+            // transport mode picker (top leading)
+            modePicker
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(true)
 
             // show all stops button when zoomed to a single pin
             if isZoomedToPin {
@@ -109,6 +151,46 @@ struct MapboxRouteMap: View {
                 .padding(8)
                 .transition(.opacity)
             }
+        }
+    }
+
+    // MARK: - Mode Picker
+
+    @ViewBuilder
+    private var modePicker: some View {
+        let modes = enabledModes
+        if modes.count > 1 {
+            HStack(spacing: 4) {
+                ForEach(modes) { mode in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+                            selectedMode = mode
+                        }
+                    } label: {
+                        Image(systemName: mode.systemImage)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(mode == selectedMode
+                                ? .white
+                                : NeighborlyTheme.textPrimary)
+                            .frame(width: 32, height: 28)
+                            .background(
+                                Capsule().fill(mode == selectedMode
+                                    ? routeColorSwiftUI
+                                    : Color.clear)
+                            )
+                    }
+                }
+                if isLoadingRoute {
+                    ProgressView()
+                        .scaleEffect(0.55)
+                        .frame(width: 18, height: 18)
+                        .padding(.trailing, 4)
+                }
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
         }
     }
 
@@ -133,11 +215,19 @@ struct MapboxRouteMap: View {
 
         guard waypoints.count >= 2 else { return }
 
+        isLoadingRoute = true
+        defer { isLoadingRoute = false }
+
         do {
-            let route = try await MapboxDirectionsService.getWalkingRoute(waypoints: waypoints)
+            let route = try await MapboxDirectionsService.getRoute(
+                mode: selectedMode,
+                waypoints: waypoints
+            )
             routeCoordinates = route.coordinates
             legInfos = route.legs
+            onRouteChanged?(route, selectedMode)
         } catch {
+            onRouteChanged?(nil, selectedMode)
             // fall back to straight lines (already the default)
         }
     }
