@@ -14,6 +14,9 @@ struct RouteView: View {
     @State private var alternatives: [Product] = []
     @State private var isLoadingAlternatives = false
     @State private var focusedStopIndex: Int?
+    @State private var directionsRoute: MapboxDirectionsService.DirectionsRoute?
+    @State private var directionsMode: TransportMode = .walking
+    @State private var checkedItemIds: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -37,6 +40,15 @@ struct RouteView: View {
                     performSwap(original: item, replacement: replacement)
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let route = routeState.optimizedRoute {
+                    tripBanner(route)
+                }
+            }
+            .onChange(of: routeState.optimizedRoute) { _, _ in
+                // a fresh optimization is a fresh trip
+                checkedItemIds = []
             }
         }
     }
@@ -64,13 +76,25 @@ struct RouteView: View {
         ScrollView {
             VStack(spacing: 16) {
                 // Map
-                MapboxRouteMap(stops: route.stops) { stopIndex in
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        focusedStopIndex = stopIndex
+                MapboxRouteMap(
+                    stops: route.stops,
+                    onStopSelected: { stopIndex in
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            focusedStopIndex = stopIndex
+                        }
+                    },
+                    onRouteChanged: { newRoute, mode in
+                        directionsRoute = newRoute
+                        directionsMode = mode
                     }
-                }
+                )
                 .frame(height: 220)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
+
+                // Travel summary (total ETA + distance)
+                if let directions = directionsRoute {
+                    travelSummary(route: directions, mode: directionsMode)
+                }
 
                 // Summary card
                 summaryCard(route)
@@ -97,13 +121,8 @@ struct RouteView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                // Store stops hide stops before the focused one
-                ForEach(Array(route.stops.enumerated()), id: \.element.id) { index, stop in
-                    if focusedStopIndex == nil || index >= focusedStopIndex! {
-                        stopCard(stop, index: index + 1)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
+                // Stops with directions blocks between them
+                interleavedStopsAndDirections(route: route)
 
                 // Items not found
                 if !route.itemsNotFound.isEmpty {
@@ -185,17 +204,27 @@ struct RouteView: View {
     // MARK: - Stop Card
 
     private func stopCard(_ stop: RouteStop, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let collected = stop.items.filter { checkedItemIds.contains($0.id) }.count
+        let total = stop.items.count
+        let stopComplete = collected == total && total > 0
+
+        return VStack(alignment: .leading, spacing: 12) {
             // Store header
             HStack(spacing: 10) {
-                Circle()
-                    .fill(NeighborlyTheme.green)
-                    .frame(width: 28, height: 28)
-                    .overlay(
+                ZStack {
+                    Circle()
+                        .fill(stopComplete ? NeighborlyTheme.green : NeighborlyTheme.green)
+                        .frame(width: 28, height: 28)
+                    if stopComplete {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                    } else {
                         Text("\(index)")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(.white)
-                    )
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(stop.store.name)
@@ -214,63 +243,102 @@ struct RouteView: View {
                     Text(stop.subtotal, format: .currency(code: "USD"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(NeighborlyTheme.green)
-                    Text("\(stop.items.count) item\(stop.items.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(NeighborlyTheme.textMuted)
+                    if stopComplete {
+                        Text("DONE")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(NeighborlyTheme.green))
+                    } else {
+                        Text("\(collected)/\(total) collected")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
                 }
             }
 
             Divider()
 
-            // Item rows tappable for swap
+            // Item rows: leading checkbox toggles, rest of row taps to swap
             ForEach(stop.items) { item in
-                Button {
-                    Task { await loadAlternatives(for: item) }
-                } label: {
-                    HStack(spacing: 10) {
-                        routeItemThumbnail(item)
-                            .frame(width: 32, height: 32)
-                            .background(NeighborlyTheme.greenSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.name)
-                                .font(.caption)
-                                .foregroundStyle(NeighborlyTheme.textPrimary)
-                                .lineLimit(1)
-                            Text(item.unitSize)
-                                .font(.caption2)
-                                .foregroundStyle(NeighborlyTheme.textMuted)
-                        }
-
-                        Spacer()
-
-                        if let sale = item.salePrice {
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(sale, format: .currency(code: "USD"))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(NeighborlyTheme.green)
-                                Text(item.price, format: .currency(code: "USD"))
-                                    .font(.caption2)
-                                    .foregroundStyle(NeighborlyTheme.textMuted)
-                                    .strikethrough()
-                            }
-                        } else {
-                            Text(item.price, format: .currency(code: "USD"))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(NeighborlyTheme.green)
-                        }
-
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.caption2)
-                            .foregroundStyle(NeighborlyTheme.textMuted)
-                    }
-                }
+                stopItemRow(item)
             }
         }
         .padding(16)
         .background(NeighborlyTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func stopItemRow(_ item: RouteItem) -> some View {
+        let checked = checkedItemIds.contains(item.id)
+
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+                    if checked {
+                        checkedItemIds.remove(item.id)
+                    } else {
+                        checkedItemIds.insert(item.id)
+                    }
+                }
+            } label: {
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(checked
+                        ? NeighborlyTheme.green
+                        : NeighborlyTheme.textMuted.opacity(0.6))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                Task { await loadAlternatives(for: item) }
+            } label: {
+                HStack(spacing: 10) {
+                    routeItemThumbnail(item)
+                        .frame(width: 32, height: 32)
+                        .background(NeighborlyTheme.greenSoft)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.name)
+                            .font(.caption)
+                            .foregroundStyle(NeighborlyTheme.textPrimary)
+                            .lineLimit(1)
+                            .strikethrough(checked, color: NeighborlyTheme.textMuted)
+                        Text(item.unitSize)
+                            .font(.caption2)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                    }
+
+                    Spacer()
+
+                    if let sale = item.salePrice {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(sale, format: .currency(code: "USD"))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NeighborlyTheme.green)
+                            Text(item.price, format: .currency(code: "USD"))
+                                .font(.caption2)
+                                .foregroundStyle(NeighborlyTheme.textMuted)
+                                .strikethrough()
+                        }
+                    } else {
+                        Text(item.price, format: .currency(code: "USD"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(NeighborlyTheme.green)
+                    }
+
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption2)
+                        .foregroundStyle(NeighborlyTheme.textMuted)
+                }
+                .opacity(checked ? 0.55 : 1)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Not Found Card
@@ -524,6 +592,384 @@ struct SwapSheet: View {
             }
         }
         .background(NeighborlyTheme.background)
+    }
+}
+
+// MARK: - Trip Banner (sticky bottom)
+
+extension RouteView {
+    fileprivate func tripBanner(_ route: OptimizedRoute) -> some View {
+        let allItems = route.stops.flatMap { $0.items }
+        let collectedItems = allItems.filter { checkedItemIds.contains($0.id) }
+        let collectedTotal = collectedItems.reduce(0.0) { $0 + ($1.salePrice ?? $1.price) }
+        let total = route.totalCost
+        let progress: Double = total > 0 ? min(1, collectedTotal / total) : 0
+
+        // Active stop = first stop with any unchecked items
+        let activeStop: (index: Int, stop: RouteStop)? = {
+            for (idx, stop) in route.stops.enumerated() {
+                let pending = stop.items.contains { !checkedItemIds.contains($0.id) }
+                if pending { return (idx, stop) }
+            }
+            return nil
+        }()
+
+        return VStack(spacing: 8) {
+            // progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(NeighborlyTheme.green.opacity(0.18))
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.25, green: 0.65, blue: 0.45),
+                                    NeighborlyTheme.green
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * progress)
+                }
+            }
+            .frame(height: 5)
+            .clipShape(Capsule())
+
+            HStack(alignment: .center, spacing: 12) {
+                if let active = activeStop {
+                    let pending = active.stop.items.filter {
+                        !checkedItemIds.contains($0.id)
+                    }.count
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Stop \(active.index + 1) of \(route.stops.count) · \(active.stop.store.name)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(NeighborlyTheme.textPrimary)
+                            .lineLimit(1)
+                        Text("\(pending) item\(pending == 1 ? "" : "s") to grab here")
+                            .font(.caption2)
+                            .foregroundStyle(NeighborlyTheme.textSecondary)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(NeighborlyTheme.green)
+                            Text("Trip complete")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(NeighborlyTheme.green)
+                        }
+                        Text("All \(allItems.count) item\(allItems.count == 1 ? "" : "s") collected")
+                            .font(.caption2)
+                            .foregroundStyle(NeighborlyTheme.textSecondary)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(collectedTotal, format: .currency(code: "USD"))
+                        .font(.system(size: 16, weight: .heavy, design: .rounded))
+                        .foregroundStyle(NeighborlyTheme.green)
+                    Text("of " + total.formatted(.currency(code: "USD")))
+                        .font(.caption2)
+                        .foregroundStyle(NeighborlyTheme.textMuted)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(.ultraThinMaterial)
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(NeighborlyTheme.textMuted.opacity(0.15))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        )
+    }
+}
+
+// MARK: - Interleaved Stops + Directions
+
+extension RouteView {
+    /// renders directions blocks between stops, in visit order. when the user
+    /// taps a pin we hide everything before that stop. when route data hasn't
+    /// arrived yet we just render the stops.
+    @ViewBuilder
+    fileprivate func interleavedStopsAndDirections(route: OptimizedRoute) -> some View {
+        let directions = directionsRoute
+        // hasUserLeg: legs.count == stops.count when user location was the origin.
+        // when only stores are waypoints, legs.count == stops.count - 1 and stop 0
+        // has no preceding leg.
+        let hasUserLeg: Bool = {
+            guard let directions else { return false }
+            return directions.legs.count >= route.stops.count
+        }()
+
+        ForEach(Array(route.stops.enumerated()), id: \.element.id) { stopIdx, stop in
+            if focusedStopIndex == nil || stopIdx >= focusedStopIndex! {
+                let legIdx = hasUserLeg ? stopIdx : stopIdx - 1
+                if let directions, legIdx >= 0, legIdx < directions.legs.count {
+                    DirectionsBlockCard(
+                        leg: directions.legs[legIdx],
+                        mode: directionsMode,
+                        toStopName: stop.store.name
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                stopCard(stop, index: stopIdx + 1)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    fileprivate func travelSummary(
+        route: MapboxDirectionsService.DirectionsRoute,
+        mode: TransportMode
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: mode.systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(modeColor(for: mode)))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formatDuration(route.totalDuration))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(NeighborlyTheme.textPrimary)
+                Text(formatDistance(route.totalDistance))
+                    .font(.system(size: 13))
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+            }
+            Spacer()
+            Text(mode.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NeighborlyTheme.textMuted)
+        }
+        .padding(14)
+        .background(NeighborlyTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+// MARK: - Per-Leg Directions Block
+
+struct DirectionsBlockCard: View {
+    let leg: MapboxDirectionsService.RouteLeg
+    let mode: TransportMode
+    let toStopName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(modeColor(for: mode))
+                Text("DIRECTIONS TO \(toStopName.uppercased())")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                    .tracking(0.5)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(formatDistance(leg.distance)) · \(formatDuration(leg.duration))")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                if leg.steps.isEmpty {
+                    Text("No turn-by-turn directions available.")
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textMuted)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(leg.steps.enumerated()), id: \.offset) { index, step in
+                        DirectionsStepRow(
+                            step: step,
+                            isLast: index == leg.steps.count - 1,
+                            accent: modeColor(for: mode)
+                        )
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(NeighborlyTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct DirectionsStepRow: View {
+    let step: MapboxDirectionsService.RouteStep
+    let isLast: Bool
+    let accent: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // icon column with vertical connecting line
+            VStack(spacing: 0) {
+                Image(systemName: stepIcon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(stepColor))
+                if !isLast {
+                    Rectangle()
+                        .fill(NeighborlyTheme.textMuted.opacity(0.2))
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(plain(step.instruction))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(NeighborlyTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let transit = step.transitDetails {
+                    transitSubtitle(transit)
+                } else {
+                    Text(metaLine())
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+            }
+            .padding(.bottom, isLast ? 0 : 14)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var stepIcon: String {
+        switch step.travelMode.uppercased() {
+        case "WALK", "WALKING":         return "figure.walk"
+        case "DRIVE", "DRIVING":        return "car.fill"
+        case "BICYCLE", "BICYCLING":    return "bicycle"
+        case "TRANSIT":
+            switch (step.transitDetails?.vehicleType ?? "").uppercased() {
+            case "SUBWAY", "METRO_RAIL", "MONORAIL":      return "tram.fill"
+            case "BUS", "TROLLEYBUS", "INTERCITY_BUS":    return "bus.fill"
+            case "RAIL", "HEAVY_RAIL", "COMMUTER_TRAIN":  return "train.side.front.car"
+            case "FERRY":                                 return "ferry.fill"
+            default:                                       return "tram.fill"
+            }
+        default:                        return "arrow.up.right"
+        }
+    }
+
+    private var stepColor: Color {
+        if step.travelMode.uppercased() == "TRANSIT",
+           let hex = step.transitDetails?.lineColorHex,
+           let color = Color(hex: hex) {
+            return color
+        }
+        return accent
+    }
+
+    private func transitSubtitle(_ transit: MapboxDirectionsService.TransitDetails) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if let short = transit.lineShortName, !short.isEmpty {
+                    Text(short)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(transit.lineTextColorHex.flatMap { Color(hex: $0) } ?? .white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(stepColor))
+                }
+                if let head = transit.headsign {
+                    Text("toward \(head)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+                }
+            }
+            HStack(spacing: 6) {
+                if let stops = transit.numStops {
+                    Text("\(stops) stop\(stops == 1 ? "" : "s")")
+                        .font(.caption2)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+                Text("·")
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                Text(formatDuration(step.duration))
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+            }
+            if let dep = transit.departureStop, let arr = transit.arrivalStop {
+                Text("\(dep) → \(arr)")
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func metaLine() -> String {
+        let dist = formatDistance(step.distance)
+        let dur = formatDuration(step.duration)
+        if dist.isEmpty { return dur }
+        return "\(dist) · \(dur)"
+    }
+
+    /// strip stray html tags (Google Routes API generally returns plain text but
+    /// occasional bold tags appear in some legacy responses).
+    private func plain(_ s: String) -> String {
+        guard s.contains("<") else { return s }
+        return s.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+    }
+}
+
+// MARK: - Helpers
+
+fileprivate func modeColor(for mode: TransportMode) -> Color {
+    switch mode {
+    case .walking:         return Color(red: 0x00/255, green: 0xC8/255, blue: 0x53/255)
+    case .car:             return Color(red: 0x1A/255, green: 0x73/255, blue: 0xE8/255)
+    case .publicTransport: return Color(red: 0xFB/255, green: 0x8C/255, blue: 0x00/255)
+    }
+}
+
+fileprivate func formatDuration(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds.rounded()))
+    if total < 60 { return "\(total) sec" }
+    let mins = total / 60
+    if mins < 60 { return "\(mins) min" }
+    let hrs = mins / 60
+    let remMin = mins % 60
+    return remMin == 0 ? "\(hrs) hr" : "\(hrs) hr \(remMin) min"
+}
+
+fileprivate func formatDistance(_ meters: Double) -> String {
+    guard meters > 0 else { return "" }
+    let miles = meters / 1609.34
+    if miles < 0.1 {
+        let feet = Int((meters * 3.28084).rounded())
+        return "\(feet) ft"
+    }
+    return String(format: "%.1f mi", miles)
+}
+
+private extension Color {
+    /// initialize from "#RRGGBB" or "RRGGBB" hex strings (returns nil for invalid).
+    init?(hex: String) {
+        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let value = UInt32(s, radix: 16) else { return nil }
+        let r = Double((value >> 16) & 0xFF) / 255
+        let g = Double((value >> 8) & 0xFF) / 255
+        let b = Double(value & 0xFF) / 255
+        self = Color(red: r, green: g, blue: b)
     }
 }
 

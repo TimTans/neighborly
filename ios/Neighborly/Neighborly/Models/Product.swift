@@ -183,7 +183,7 @@ struct ProductSearchResultsResponse: Codable, Sendable {
 
 // MARK: - Route Optimization
 
-struct OptimizedRoute: Codable, Sendable {
+struct OptimizedRoute: Codable, Equatable, Sendable {
     let totalCost: Double
     let totalDistance: Double?
     let stops: [RouteStop]
