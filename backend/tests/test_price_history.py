@@ -71,11 +71,11 @@ async def test_get_price_history_groups_by_store_and_orders():
     ]
     history_rows = [
         {"store_product_id": "sp1", "price": 4.99, "sale_price": None,
-         "created_at": "2026-04-01T00:00:00Z"},
+         "recorded_at": "2026-04-01T00:00:00Z"},
         {"store_product_id": "sp1", "price": 5.49, "sale_price": 3.99,
-         "created_at": "2026-04-15T00:00:00Z"},
+         "recorded_at": "2026-04-15T00:00:00Z"},
         {"store_product_id": "sp2", "price": 4.50, "sale_price": None,
-         "created_at": "2026-04-10T00:00:00Z"},
+         "recorded_at": "2026-04-10T00:00:00Z"},
     ]
     fake = _FakeSupabase({
         "store_products": sp_rows,
@@ -106,7 +106,7 @@ async def test_get_price_history_filters_by_store_id():
                 "stores": {"id": "store-a", "name": "Key Food", "chain": "keyfood"}}]
     history_rows = [
         {"store_product_id": "sp1", "price": 1.99, "sale_price": None,
-         "created_at": "2026-04-01T00:00:00Z"},
+         "recorded_at": "2026-04-01T00:00:00Z"},
     ]
     fake = _FakeSupabase({
         "store_products": sp_rows,
@@ -146,7 +146,7 @@ async def test_get_price_history_skips_stores_with_no_points():
     ]
     history_rows = [
         {"store_product_id": "sp1", "price": 4.99, "sale_price": None,
-         "created_at": "2026-04-01T00:00:00Z"},
+         "recorded_at": "2026-04-01T00:00:00Z"},
     ]
     fake = _FakeSupabase({
         "store_products": sp_rows,
@@ -169,10 +169,10 @@ async def test_get_price_history_clamps_days():
 
     with patch("app.services.product_service.get_supabase", return_value=fake):
         await product_service.get_price_history("prod-1", days=10_000)
-        cutoff_huge = fake.last_queries["store_product_price_history"].filters["gte:created_at"]
+        cutoff_huge = fake.last_queries["store_product_price_history"].filters["gte:recorded_at"]
 
         await product_service.get_price_history("prod-1", days=0)
-        cutoff_zero = fake.last_queries["store_product_price_history"].filters["gte:created_at"]
+        cutoff_zero = fake.last_queries["store_product_price_history"].filters["gte:recorded_at"]
 
     # huge days clamps to 365 (older cutoff), zero clamps to 1 (recent cutoff)
     assert cutoff_huge < cutoff_zero

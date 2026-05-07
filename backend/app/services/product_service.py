@@ -302,15 +302,15 @@ async def get_price_history(
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     history = sb.table("store_product_price_history").select(
-        "store_product_id, price, sale_price, created_at"
+        "store_product_id, price, sale_price, recorded_at"
     ).in_("store_product_id", sp_ids).gte(
-        "created_at", cutoff
-    ).order("created_at").execute()
+        "recorded_at", cutoff
+    ).order("recorded_at").execute()
 
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in history.data or []:
         grouped[row["store_product_id"]].append({
-            "recorded_at": row.get("created_at"),
+            "recorded_at": row.get("recorded_at"),
             "price": row.get("price"),
             "sale_price": row.get("sale_price"),
         })
