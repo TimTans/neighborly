@@ -181,6 +181,41 @@ struct ProductSearchResultsResponse: Codable, Sendable {
     let count: Int
 }
 
+// MARK: - Price History
+
+struct PriceHistoryPoint: Codable, Hashable, Sendable {
+    let recordedAt: String
+    let price: Double?
+    let salePrice: Double?
+
+    /// effective price: prefers sale price when present.
+    var effectivePrice: Double? { salePrice ?? price }
+
+    /// supabase timestamps may or may not include fractional seconds, so try both.
+    var recordedDate: Date? {
+        let isoFractional = ISO8601DateFormatter()
+        isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFractional.date(from: recordedAt) { return d }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: recordedAt)
+    }
+}
+
+struct PriceHistorySeries: Codable, Identifiable, Hashable, Sendable {
+    let storeId: String?
+    let storeName: String?
+    let storeChain: String?
+    let points: [PriceHistoryPoint]
+
+    var id: String { storeId ?? storeName ?? UUID().uuidString }
+    var displayName: String { storeName ?? "Unknown store" }
+}
+
+struct PriceHistoryResponse: Codable, Sendable {
+    let data: [PriceHistorySeries]
+}
+
 // MARK: - Route Optimization
 
 struct OptimizedRoute: Codable, Equatable, Sendable {

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 import Network
 import CoreLocation
 
@@ -122,10 +123,7 @@ struct GroceryListView: View {
     @State private var searchPage = 1
     @State private var searchTotalCount = 0
     @State private var isLoadingMore = false
-    @State private var selectedItem: GroceryListItem?
-    @State private var selectedProduct: Product?
-    @State private var searchDetailProduct: Product?
-    @State private var loadingDetailId: String?
+    @State private var detailSubject: DetailSubject?
     @State private var networkMonitor = NetworkMonitor()
     @State private var locationHelper = LocationHelper()
     @State private var nutritionCache: [String: ProductNutrition] = [:]
@@ -180,17 +178,25 @@ struct GroceryListView: View {
             }
             .navigationTitle("Grocery List")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(item: $selectedItem) { item in
-                ItemDetailSheet(item: item, product: selectedProduct)
-                    .presentationDetents([.medium])
-            }
-            .sheet(item: $searchDetailProduct) { product in
-                ProductDetailSheet(product: product, prefs: currentPrefs) {
-                    addOrIncrement(product)
-                    searchDetailProduct = nil
-                    searchText = ""
-                    searchResults = []
-                }
+            .sheet(item: $detailSubject) { subject in
+                ProductDetailSheet(
+                    subject: subject,
+                    prefs: currentPrefs,
+                    onAdd: { product in
+                        addOrIncrement(product)
+                        detailSubject = nil
+                        searchText = ""
+                        searchResults = []
+                    },
+                    onRemove: { item in
+                        modelContext.delete(item)
+                        detailSubject = nil
+                    },
+                    onIncrement: { item in item.quantity += 1 },
+                    onDecrement: { item in
+                        if item.quantity > 1 { item.quantity -= 1 }
+                    }
+                )
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showWellnessWarning) {
@@ -269,7 +275,7 @@ struct GroceryListView: View {
             LazyVStack(spacing: 0) {
                 ForEach(searchResults) { result in
                     Button {
-                        Task { await openSearchDetail(for: result) }
+                        detailSubject = DetailSubject(kind: .search(result))
                     } label: {
                         HStack(spacing: 12) {
                             searchResultThumbnail(result)
@@ -303,10 +309,7 @@ struct GroceryListView: View {
                             Spacer()
 
                             HStack(spacing: 6) {
-                                if loadingDetailId == result.id {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                } else if let price = result.bestPrice {
+                                if let price = result.bestPrice {
                                     VStack(alignment: .trailing, spacing: 2) {
                                         Text(price, format: .currency(code: "USD"))
                                             .font(.subheadline.weight(.semibold))
@@ -327,7 +330,6 @@ struct GroceryListView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                     }
-                    .disabled(loadingDetailId != nil)
 
                     if result.id != searchResults.last?.id {
                         Divider()
@@ -477,9 +479,7 @@ struct GroceryListView: View {
                 .listRowBackground(NeighborlyTheme.cardBackground)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    Task {
-                        await fetchAndShowDetail(for: item)
-                    }
+                    detailSubject = DetailSubject(kind: .existingItem(item))
                 }
             }
             .onDelete(perform: deleteItems)
@@ -634,19 +634,6 @@ struct GroceryListView: View {
         return "Something went wrong"
     }
 
-    private func openSearchDetail(for result: ProductSearchResult) async {
-        guard loadingDetailId == nil else { return }
-        loadingDetailId = result.id
-        defer { loadingDetailId = nil }
-
-        do {
-            let full = try await APIService.getProduct(id: result.id)
-            searchDetailProduct = full
-        } catch {
-            searchError = "Couldn't load product details"
-        }
-    }
-
     private func loadMoreResults() async {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard !isLoadingMore, searchResults.count < searchTotalCount else { return }
@@ -680,14 +667,6 @@ struct GroceryListView: View {
         }
     }
 
-    private func fetchAndShowDetail(for item: GroceryListItem) async {
-        if let productId = item.productId {
-            selectedProduct = try? await APIService.getProduct(id: productId)
-        } else {
-            selectedProduct = nil
-        }
-        selectedItem = item
-    }
 
     private func refreshPrices() async {
         let itemsToRefresh = items.filter { $0.productId != nil }
@@ -805,286 +784,563 @@ struct GroceryItemRow: View {
     }
 }
 
-// MARK: - Item Detail Sheet
+// MARK: - Detail Subject
 
-struct ItemDetailSheet: View {
-    let item: GroceryListItem
-    let product: Product?
+/// what the unified ProductDetailSheet is showing.
+/// search flow: a slim search row; the sheet fetches the full product.
+/// existing item flow: a SwiftData GroceryListItem; the sheet fetches by productId.
+struct DetailSubject: Identifiable {
+    let id = UUID()
+    let kind: Kind
 
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                // Item header
-                HStack(alignment: .top, spacing: 14) {
-                    if let imageUrl = product?.imageUrl, let url = URL(string: imageUrl) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                            case .failure:
-                                Text(product?.productCategories.emoji ?? "🛒")
-                                    .font(.largeTitle)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(NeighborlyTheme.greenSoft)
-                            default:
-                                ProgressView()
-                            }
-                        }
-                        .frame(width: 72, height: 72)
-                        .background(NeighborlyTheme.cardBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    } else {
-                        Text(product?.productCategories.emoji ?? "🛒")
-                            .font(.largeTitle)
-                            .frame(width: 72, height: 72)
-                            .background(NeighborlyTheme.greenSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
+    enum Kind {
+        case search(ProductSearchResult)
+        case existingItem(GroceryListItem)
+    }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.name)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(NeighborlyTheme.textPrimary)
-                        Text(item.unitSize)
-                            .font(.subheadline)
-                            .foregroundStyle(NeighborlyTheme.textMuted)
-                        Text("Qty: \(item.quantity)")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(NeighborlyTheme.textSecondary)
-                    }
-                }
-
-                Divider()
-
-                if let product = product, !product.storeProducts.isEmpty {
-                    // Real multi-store prices
-                    Text("PRICES BY STORE")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(NeighborlyTheme.textMuted)
-                        .tracking(0.5)
-
-                    VStack(spacing: 10) {
-                        ForEach(product.storeProducts.sorted(by: {
-                            ($0.salePrice ?? $0.price) < ($1.salePrice ?? $1.price)
-                        }), id: \.storeId) { sp in
-                            HStack {
-                                Circle()
-                                    .fill(NeighborlyTheme.green)
-                                    .frame(width: 8, height: 8)
-
-                                Text(sp.stores.name)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(NeighborlyTheme.textPrimary)
-
-                                if !sp.inStock {
-                                    Text("out of stock")
-                                        .font(.caption2)
-                                        .foregroundStyle(.red.opacity(0.7))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(NeighborlyTheme.background)
-                                        .clipShape(Capsule())
-                                }
-
-                                Spacer()
-
-                                VStack(alignment: .trailing, spacing: 1) {
-                                    if let sale = sp.salePrice {
-                                        Text(sale, format: .currency(code: "USD"))
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(NeighborlyTheme.green)
-                                        Text(sp.price, format: .currency(code: "USD"))
-                                            .font(.caption)
-                                            .foregroundStyle(NeighborlyTheme.textMuted)
-                                            .strikethrough()
-                                    } else {
-                                        Text(sp.price, format: .currency(code: "USD"))
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(NeighborlyTheme.green)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .background(NeighborlyTheme.cardBackground)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                    }
-                } else {
-                    // No product data so only show stored price
-                    Text("STORED PRICE")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(NeighborlyTheme.textMuted)
-                        .tracking(0.5)
-
-                    HStack {
-                        Circle()
-                            .fill(NeighborlyTheme.orange)
-                            .frame(width: 8, height: 8)
-                        Text("Last known price")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(NeighborlyTheme.textPrimary)
-                        Spacer()
-                        Text(item.price, format: .currency(code: "USD"))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(NeighborlyTheme.orange)
-                    }
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 14)
-                    .background(NeighborlyTheme.cardBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                    Text("Search for this item to see current store prices.")
-                        .font(.caption)
-                        .foregroundStyle(NeighborlyTheme.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }
-            .padding(20)
-
-            Spacer()
+    var productId: String? {
+        switch kind {
+        case .search(let r):       return r.id
+        case .existingItem(let i): return i.productId
         }
-        .background(NeighborlyTheme.background)
+    }
+
+    var displayName: String {
+        switch kind {
+        case .search(let r):       return r.name
+        case .existingItem(let i): return i.name
+        }
+    }
+
+    var displayBrand: String? {
+        switch kind {
+        case .search(let r):       return r.brand
+        case .existingItem:        return nil  // GroceryListItem doesn't carry brand
+        }
+    }
+
+    var displayUnitSize: String {
+        switch kind {
+        case .search(let r):       return r.displayUnitSize
+        case .existingItem(let i): return i.unitSize
+        }
+    }
+
+    var fallbackEmoji: String {
+        switch kind {
+        case .search(let r):       return r.emoji
+        case .existingItem:        return "🛒"
+        }
+    }
+
+    var fallbackImageUrl: String? {
+        switch kind {
+        case .search(let r):       return r.imageUrl
+        case .existingItem:        return nil
+        }
+    }
+
+    /// stored snapshot price, used as last-resort fallback for existing items.
+    var storedPrice: Double? {
+        switch kind {
+        case .search:              return nil
+        case .existingItem(let i): return i.price > 0 ? i.price : nil
+        }
     }
 }
 
-// MARK: - Product Detail Sheet (from search results)
+// MARK: - Product Detail Sheet (unified)
 
 struct ProductDetailSheet: View {
-    let product: Product
+    let subject: DetailSubject
     let prefs: Preferences
-    let onAdd: () -> Void
+    var onAdd: ((Product) -> Void)? = nil
+    var onRemove: ((GroceryListItem) -> Void)? = nil
+    var onIncrement: ((GroceryListItem) -> Void)? = nil
+    var onDecrement: ((GroceryListItem) -> Void)? = nil
+
+    @State private var product: Product?
+    @State private var loadState: LoadState = .loading
+    @State private var historyDays: Int = 90
+
+    enum LoadState { case loading, loaded, failed }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Product header
-                    HStack(alignment: .top, spacing: 14) {
-                        if let imageUrl = product.imageUrl, let url = URL(string: imageUrl) {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                case .failure:
-                                    Text(product.productCategories.emoji)
-                                        .font(.largeTitle)
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        .background(NeighborlyTheme.greenSoft)
-                                default:
-                                    ProgressView()
-                                }
-                            }
-                            .frame(width: 72, height: 72)
-                            .background(NeighborlyTheme.cardBackground)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        } else {
-                            Text(product.productCategories.emoji)
-                                .font(.largeTitle)
-                                .frame(width: 72, height: 72)
-                                .background(NeighborlyTheme.greenSoft)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(product.name)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(NeighborlyTheme.textPrimary)
-                            if let brand = product.brand {
-                                Text(brand)
-                                    .font(.subheadline)
-                                    .foregroundStyle(NeighborlyTheme.textSecondary)
-                            }
-                            Text(product.unitSize)
-                                .font(.subheadline)
-                                .foregroundStyle(NeighborlyTheme.textMuted)
-                        }
-                    }
+                Divider()
 
-                    Divider()
+                priceSection
 
-                    if !product.storeProducts.isEmpty {
-                        Text("PRICES BY STORE")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(NeighborlyTheme.textMuted)
-                            .tracking(0.5)
-
-                        VStack(spacing: 10) {
-                            ForEach(product.storeProducts.sorted(by: {
-                                ($0.salePrice ?? $0.price) < ($1.salePrice ?? $1.price)
-                            }), id: \.storeId) { sp in
-                                HStack {
-                                    Circle()
-                                        .fill(NeighborlyTheme.green)
-                                        .frame(width: 8, height: 8)
-
-                                    Text(sp.stores.name)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(NeighborlyTheme.textPrimary)
-
-                                    if !sp.inStock {
-                                        Text("out of stock")
-                                            .font(.caption2)
-                                            .foregroundStyle(.red.opacity(0.7))
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(NeighborlyTheme.background)
-                                            .clipShape(Capsule())
-                                    }
-
-                                    Spacer()
-
-                                    VStack(alignment: .trailing, spacing: 1) {
-                                        if let sale = sp.salePrice {
-                                            Text(sale, format: .currency(code: "USD"))
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundStyle(NeighborlyTheme.green)
-                                            Text(sp.price, format: .currency(code: "USD"))
-                                                .font(.caption)
-                                                .foregroundStyle(NeighborlyTheme.textMuted)
-                                                .strikethrough()
-                                        } else {
-                                            Text(sp.price, format: .currency(code: "USD"))
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundStyle(NeighborlyTheme.green)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 14)
-                                .background(NeighborlyTheme.cardBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                        }
-                    }
-
-                    if let nutrition = product.productNutrition, prefs.wellnessEnabled {
-                        WellnessPanel(nutrition: nutrition, prefs: prefs)
-                    }
-
-                    // Add to list button
-                    Button(action: onAdd) {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Add to Grocery List")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(NeighborlyTheme.green)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .padding(.top, 4)
+                if let nutrition = product?.productNutrition, prefs.wellnessEnabled {
+                    WellnessPanel(nutrition: nutrition, prefs: prefs)
                 }
-                .padding(20)
+
+                if let id = effectiveProductId {
+                    PriceHistorySection(productId: id, days: $historyDays)
+                }
+
+                actionSection
             }
+            .padding(20)
         }
         .background(NeighborlyTheme.background)
+        .task(id: subject.id) { await loadProduct() }
+    }
+
+    // MARK: header
+
+    @ViewBuilder
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
+            thumbnail
+                .frame(width: 72, height: 72)
+                .background(NeighborlyTheme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(subject.displayName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(NeighborlyTheme.textPrimary)
+                if let brand = product?.brand ?? subject.displayBrand {
+                    Text(brand)
+                        .font(.subheadline)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+                if !subject.displayUnitSize.isEmpty {
+                    Text(subject.displayUnitSize)
+                        .font(.subheadline)
+                        .foregroundStyle(NeighborlyTheme.textMuted)
+                }
+                if case .existingItem(let item) = subject.kind {
+                    Text("Qty: \(item.quantity)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        let urlString = product?.imageUrl ?? subject.fallbackImageUrl
+        let emoji = product?.productCategories.emoji ?? subject.fallbackEmoji
+
+        if let urlString, let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fit)
+                case .failure:
+                    Text(emoji)
+                        .font(.largeTitle)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(NeighborlyTheme.greenSoft)
+                default:
+                    ProgressView()
+                }
+            }
+        } else {
+            Text(emoji)
+                .font(.largeTitle)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(NeighborlyTheme.greenSoft)
+        }
+    }
+
+    // MARK: prices
+
+    @ViewBuilder
+    private var priceSection: some View {
+        switch loadState {
+        case .loading:
+            HStack {
+                Spacer()
+                ProgressView()
+                    .padding(.vertical, 24)
+                Spacer()
+            }
+        case .loaded:
+            if let product, !product.storeProducts.isEmpty {
+                pricesByStoreList(product)
+            } else {
+                noLivePricesFallback(reason: subject.productId == nil
+                    ? "No live price data for this item."
+                    : "No store prices available right now.")
+            }
+        case .failed:
+            fetchFailedFallback
+        }
+    }
+
+    @ViewBuilder
+    private func pricesByStoreList(_ product: Product) -> some View {
+        Text("PRICES BY STORE")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(NeighborlyTheme.textMuted)
+            .tracking(0.5)
+
+        VStack(spacing: 10) {
+            ForEach(product.storeProducts.sorted(by: {
+                ($0.salePrice ?? $0.price) < ($1.salePrice ?? $1.price)
+            }), id: \.storeId) { sp in
+                storeRow(sp)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func storeRow(_ sp: StoreProduct) -> some View {
+        HStack {
+            Circle()
+                .fill(NeighborlyTheme.green)
+                .frame(width: 8, height: 8)
+
+            Text(sp.stores.name)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(NeighborlyTheme.textPrimary)
+
+            if !sp.inStock {
+                Text("out of stock")
+                    .font(.caption2)
+                    .foregroundStyle(.red.opacity(0.7))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(NeighborlyTheme.background)
+                    .clipShape(Capsule())
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 1) {
+                if let sale = sp.salePrice {
+                    Text(sale, format: .currency(code: "USD"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NeighborlyTheme.green)
+                    Text(sp.price, format: .currency(code: "USD"))
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textMuted)
+                        .strikethrough()
+                } else {
+                    Text(sp.price, format: .currency(code: "USD"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NeighborlyTheme.green)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(NeighborlyTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func noLivePricesFallback(reason: String) -> some View {
+        Text("PRICES")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(NeighborlyTheme.textMuted)
+            .tracking(0.5)
+
+        if let stored = subject.storedPrice {
+            HStack {
+                Circle()
+                    .fill(NeighborlyTheme.orange)
+                    .frame(width: 8, height: 8)
+                Text("Last known price")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(NeighborlyTheme.textPrimary)
+                Spacer()
+                Text(stored, format: .currency(code: "USD"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NeighborlyTheme.orange)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(NeighborlyTheme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+
+        Text(reason)
+            .font(.caption)
+            .foregroundStyle(NeighborlyTheme.textMuted)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var fetchFailedFallback: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.exclamationmark")
+                    .foregroundStyle(NeighborlyTheme.orange)
+                Text("Couldn't reach server — showing last known price")
+                    .font(.caption)
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let stored = subject.storedPrice {
+                HStack {
+                    Circle()
+                        .fill(NeighborlyTheme.orange)
+                        .frame(width: 8, height: 8)
+                    Text("Last known price")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+                    Spacer()
+                    Text(stored, format: .currency(code: "USD"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NeighborlyTheme.orange)
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(NeighborlyTheme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+
+            Button {
+                Task { await loadProduct() }
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(NeighborlyTheme.greenSoft)
+                    .foregroundStyle(NeighborlyTheme.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    // MARK: actions
+
+    @ViewBuilder
+    private var actionSection: some View {
+        switch subject.kind {
+        case .search:
+            if let product, let onAdd {
+                Button { onAdd(product) } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add to Grocery List")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(NeighborlyTheme.green)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.top, 4)
+            }
+        case .existingItem(let item):
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    Button { onDecrement?(item) } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(item.quantity > 1
+                                ? NeighborlyTheme.green
+                                : NeighborlyTheme.textMuted)
+                    }
+                    .disabled(item.quantity <= 1)
+
+                    Text("\(item.quantity)")
+                        .font(.title3.weight(.semibold))
+                        .frame(minWidth: 32)
+
+                    Button { onIncrement?(item) } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(NeighborlyTheme.green)
+                    }
+
+                    Spacer()
+                }
+
+                if let onRemove {
+                    Button(role: .destructive) {
+                        onRemove(item)
+                    } label: {
+                        Label("Remove from List", systemImage: "trash")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.red.opacity(0.08))
+                            .foregroundStyle(.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    // MARK: loading
+
+    private var effectiveProductId: String? {
+        product?.id ?? subject.productId
+    }
+
+    private func loadProduct() async {
+        guard let id = subject.productId else {
+            loadState = .loaded
+            return
+        }
+        loadState = .loading
+        do {
+            product = try await APIService.getProduct(id: id)
+            loadState = .loaded
+        } catch {
+            loadState = .failed
+        }
+    }
+}
+
+// MARK: - Price History Section
+
+struct PriceHistorySection: View {
+    let productId: String
+    @Binding var days: Int
+
+    @State private var series: [PriceHistorySeries] = []
+    @State private var loadState: LoadState = .loading
+
+    enum LoadState { case loading, loaded, failed }
+
+    private static let windowOptions: [(label: String, days: Int)] = [
+        ("30D", 30), ("90D", 90), ("1Y", 365),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("PRICE HISTORY")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                    .tracking(0.5)
+                Spacer()
+                Picker("Window", selection: $days) {
+                    ForEach(Self.windowOptions, id: \.days) { opt in
+                        Text(opt.label).tag(opt.days)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 180)
+            }
+
+            content
+        }
+        .padding(.top, 4)
+        .task(id: productId) { await load() }
+        .task(id: days) { await load() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch loadState {
+        case .loading:
+            HStack {
+                Spacer()
+                ProgressView().padding(.vertical, 18)
+                Spacer()
+            }
+        case .failed:
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.exclamationmark")
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                Text("Couldn't load price history")
+                    .font(.caption)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                Spacer()
+                Button("Retry") { Task { await load() } }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(NeighborlyTheme.green)
+            }
+            .padding(12)
+            .background(NeighborlyTheme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        case .loaded:
+            if plottable.isEmpty {
+                Text("No price history yet for this window.")
+                    .font(.caption)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 14)
+                    .background(NeighborlyTheme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                chart
+                legend
+            }
+        }
+    }
+
+    /// flatten series → (date, price, store) datums, dropping points whose
+    /// timestamp couldn't parse or whose effective price is nil.
+    private var plottable: [Datum] {
+        series.flatMap { s in
+            s.points.compactMap { p -> Datum? in
+                guard let date = p.recordedDate, let price = p.effectivePrice else { return nil }
+                return Datum(date: date, price: price, store: s.displayName)
+            }
+        }
+    }
+
+    private struct Datum: Identifiable {
+        let id = UUID()
+        let date: Date
+        let price: Double
+        let store: String
+    }
+
+    private var chart: some View {
+        Chart(plottable) { d in
+            LineMark(
+                x: .value("Date", d.date),
+                y: .value("Price", d.price)
+            )
+            .foregroundStyle(by: .value("Store", d.store))
+            .interpolationMethod(.monotone)
+            .symbol(by: .value("Store", d.store))
+        }
+        .chartYAxis {
+            AxisMarks(format: .currency(code: "USD"))
+        }
+        .chartLegend(.hidden)
+        .frame(height: 180)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(NeighborlyTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var legend: some View {
+        let stores = Array(Set(plottable.map { $0.store })).sorted()
+        return HStack(spacing: 12) {
+            ForEach(stores, id: \.self) { name in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(NeighborlyTheme.green)
+                        .frame(width: 7, height: 7)
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(NeighborlyTheme.textSecondary)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func load() async {
+        loadState = .loading
+        do {
+            series = try await APIService.getPriceHistory(productId: productId, days: days)
+            loadState = .loaded
+        } catch {
+            loadState = .failed
+        }
     }
 }
 

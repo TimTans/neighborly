@@ -6,6 +6,8 @@ the route layer handles serialization to pydantic response models.
 """
 
 import math
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from app.core.supabase import get_supabase
 
@@ -253,6 +255,80 @@ async def get_alternatives(product_id: str, limit: int = 10) -> list[dict]:
     ).limit(limit).order("name").execute()
 
     return result.data or []
+
+
+async def get_price_history(
+    product_id: str,
+    days: int = 90,
+    store_id: str | None = None,
+) -> list[dict]:
+    """
+    return price history for a product, grouped by store.
+
+    one entry per store with an ordered list of points. each point carries
+    recorded_at, price, and sale_price. days is clamped to [1, 365].
+    when store_id is provided, only that store's series is returned.
+
+    shape:
+      [
+        {
+          "store_id": "...",
+          "store_name": "Key Food",
+          "store_chain": "keyfood",
+          "points": [
+            {"recorded_at": "...", "price": 4.99, "sale_price": null},
+            ...
+          ]
+        }
+      ]
+    """
+    days = max(1, min(days, 365))
+    sb = get_supabase()
+
+    sp_query = sb.table("store_products").select(
+        "id, store_id, stores(id, name, chain)"
+    ).eq("product_id", product_id)
+    if store_id:
+        sp_query = sp_query.eq("store_id", store_id)
+    sp_result = sp_query.execute()
+
+    sp_rows = sp_result.data or []
+    if not sp_rows:
+        return []
+
+    sp_id_to_store = {row["id"]: row.get("stores") or {} for row in sp_rows}
+    sp_ids = list(sp_id_to_store.keys())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    history = sb.table("store_product_price_history").select(
+        "store_product_id, price, sale_price, created_at"
+    ).in_("store_product_id", sp_ids).gte(
+        "created_at", cutoff
+    ).order("created_at").execute()
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in history.data or []:
+        grouped[row["store_product_id"]].append({
+            "recorded_at": row.get("created_at"),
+            "price": row.get("price"),
+            "sale_price": row.get("sale_price"),
+        })
+
+    series: list[dict] = []
+    for sp_id, points in grouped.items():
+        if not points:
+            continue
+        store = sp_id_to_store.get(sp_id) or {}
+        series.append({
+            "store_id": store.get("id"),
+            "store_name": store.get("name"),
+            "store_chain": store.get("chain"),
+            "points": points,
+        })
+
+    series.sort(key=lambda s: len(s["points"]), reverse=True)
+    return series
 
 
 async def get_product_prices(product_id: str) -> list[dict]:

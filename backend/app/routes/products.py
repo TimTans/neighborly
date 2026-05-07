@@ -65,3 +65,16 @@ async def get_alternatives(
 async def get_product_prices(product_id: str):
     """get price comparison across all stores for a product, sorted cheapest first."""
     return await product_service.get_product_prices(product_id)
+
+
+@router.get("/{product_id}/price-history")
+async def get_price_history(
+    product_id: str,
+    days: int = Query(default=90, ge=1, le=365),
+    store_id: str | None = Query(default=None, description="restrict to one store"),
+):
+    """price history for a product, grouped by store, capped at 365 days."""
+    series = await product_service.get_price_history(
+        product_id, days=days, store_id=store_id
+    )
+    return {"data": series}

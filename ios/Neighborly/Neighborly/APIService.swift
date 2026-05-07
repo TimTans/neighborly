@@ -101,6 +101,37 @@ enum APIService {
         return try decoder.decode(OptimizedRoute.self, from: data)
     }
 
+    static func getPriceHistory(
+        productId: String,
+        days: Int = 90,
+        storeId: String? = nil
+    ) async throws -> [PriceHistorySeries] {
+        var components = URLComponents(
+            url: AppConfig.apiBaseURL
+                .appendingPathComponent("products")
+                .appendingPathComponent(productId)
+                .appendingPathComponent("price-history"),
+            resolvingAgainstBaseURL: false
+        )
+        var items = [URLQueryItem(name: "days", value: String(days))]
+        if let storeId {
+            items.append(URLQueryItem(name: "store_id", value: storeId))
+        }
+        components?.queryItems = items
+
+        guard let url = components?.url else {
+            throw APIError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.serverError(statusCode: http.statusCode)
+        }
+
+        return try decoder.decode(PriceHistoryResponse.self, from: data).data
+    }
+
     static func getAlternatives(productId: String) async throws -> [Product] {
         let url = AppConfig.apiBaseURL
             .appendingPathComponent("products")
