@@ -286,9 +286,11 @@ struct GroceryListView: View {
                                         .font(.caption)
                                         .foregroundStyle(NeighborlyTheme.textSecondary)
                                 }
-                                Text(result.unitSize)
-                                    .font(.caption)
-                                    .foregroundStyle(NeighborlyTheme.textMuted)
+                                if let size = result.unitSize, !size.isEmpty {
+                                    Text(size)
+                                        .font(.caption)
+                                        .foregroundStyle(NeighborlyTheme.textMuted)
+                                }
                                 AllergenChips(
                                     containsDairy: result.containsDairy,
                                     containsPeanuts: result.containsPeanuts,
@@ -606,10 +608,30 @@ struct GroceryListView: View {
             guard !Task.isCancelled else { return }
             searchResults = []
             print("search error: \(error)")
-            searchError = "Couldn't reach server"
+            searchError = Self.userFacingMessage(for: error)
         }
 
         isSearching = false
+    }
+
+    private static func userFacingMessage(for error: Error) -> String {
+        if error is DecodingError {
+            return "Couldn't read response"
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "No internet connection"
+            case .timedOut:
+                return "Request timed out"
+            default:
+                return "Couldn't reach server"
+            }
+        }
+        if let apiError = error as? APIError {
+            return apiError.errorDescription ?? "Something went wrong"
+        }
+        return "Something went wrong"
     }
 
     private func openSearchDetail(for result: ProductSearchResult) async {

@@ -35,7 +35,7 @@ final class GroceryListItem {
         self.init(
             name: result.name,
             price: result.bestPrice ?? 0,
-            unitSize: result.unitSize,
+            unitSize: result.unitSize ?? "",
             upc: result.upc ?? "",
             productId: result.id
         )

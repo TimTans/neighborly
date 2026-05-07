@@ -157,7 +157,7 @@ struct ProductSearchResult: Codable, Identifiable, Hashable, Sendable {
     let name: String
     let brand: String?
     let imageUrl: String?
-    let unitSize: String
+    let unitSize: String?
     let upc: String?
     let categorySlug: String?
     let bestPrice: Double?
@@ -171,6 +171,9 @@ struct ProductSearchResult: Codable, Identifiable, Hashable, Sendable {
     var emoji: String {
         ProductCategory.emoji(for: categorySlug)
     }
+
+    /// Display-safe unit size — empty string when the source row has null.
+    var displayUnitSize: String { unitSize ?? "" }
 }
 
 struct ProductSearchResultsResponse: Codable, Sendable {
