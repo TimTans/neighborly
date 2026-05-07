@@ -32,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,10 +54,22 @@ import com.example.android.viewmodel.shopper.ShopperViewModel
 @Composable
 fun PreferencesScreen(
     shopperViewModel: ShopperViewModel,
+    userId: String?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val prefs = shopperViewModel.uiState.preferences
+    val syncError = shopperViewModel.uiState.remoteSyncError
+    val isSynced = shopperViewModel.uiState.isRemoteSynced
+
+    // Reconcile remote → local on first open after login. The view model
+    // guards against repeated overlays via `hasReconciledRemote`, so this is
+    // safe even when the screen recomposes.
+    LaunchedEffect(userId) {
+        if (!userId.isNullOrBlank()) {
+            shopperViewModel.fetchRemotePreferences(userId)
+        }
+    }
 
     Surface(modifier = modifier.fillMaxSize(), color = NeighborlyColors.Background) {
         Column(
@@ -90,6 +103,12 @@ fun PreferencesScreen(
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
+            )
+
+            SyncStatusRow(
+                userId = userId,
+                isSynced = isSynced,
+                errorMessage = syncError
             )
 
             PreferenceCard(title = "Prioritize") {
@@ -330,6 +349,35 @@ private fun DietaryToggleSection(prefs: PreferenceState, shopperViewModel: Shopp
     ToggleRow("Kosher", prefs.dietKosher, shopperViewModel::toggleDietKosher)
     ToggleRow("Halal", prefs.dietHalal, shopperViewModel::toggleDietHalal)
     ToggleRow("Keto", prefs.dietKeto, shopperViewModel::toggleDietKeto)
+}
+
+@Composable
+private fun SyncStatusRow(
+    userId: String?,
+    isSynced: Boolean,
+    errorMessage: String?
+) {
+    // Hidden when there's nothing to say: no user yet, no error, and no
+    // confirmed-sync. Avoids a permanent green dot for users who haven't
+    // touched preferences this session.
+    val text: String = when {
+        errorMessage != null -> "Sync error: $errorMessage"
+        userId == null -> return
+        isSynced -> "Synced"
+        else -> return
+    }
+    val color = if (errorMessage != null) {
+        NeighborlyColors.Orange
+    } else {
+        NeighborlyColors.Green
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center
+    )
 }
 
 @Composable

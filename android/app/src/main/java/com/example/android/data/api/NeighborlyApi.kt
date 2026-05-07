@@ -5,6 +5,8 @@ import com.example.android.data.model.OptimizedRoute
 import com.example.android.data.model.OptimizeRouteRequest
 import com.example.android.data.model.Product
 import com.example.android.data.model.ProductSearchResponse
+import com.example.android.data.model.RecipeRequestPayload
+import com.example.android.data.model.RecipeSuggestion
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
@@ -50,6 +52,8 @@ interface NeighborlyApi {
     ): Result<OptimizedRoute>
 
     suspend fun getAlternatives(productId: String): Result<List<Product>>
+
+    suspend fun generateRecipe(payload: RecipeRequestPayload): Result<RecipeSuggestion>
 }
 
 sealed class NeighborlyApiError(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -129,6 +133,14 @@ class KtorNeighborlyApi(
     override suspend fun getAlternatives(productId: String): Result<List<Product>> = request {
         get {
             neighborlyUrl("products", productId, "alternatives")
+        }
+    }
+
+    override suspend fun generateRecipe(payload: RecipeRequestPayload): Result<RecipeSuggestion> = request {
+        post {
+            neighborlyUrl("recipes", "generate")
+            contentType(ContentType.Application.Json)
+            setBody(payload)
         }
     }
 

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.model.Product
+import com.example.android.domain.wellness.WellnessViolation
 import com.example.android.ui.components.ProductImage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,6 +43,7 @@ fun ItemDetailSheet(
     fullProduct: Product?,
     isLoadingFullProduct: Boolean,
     errorMessage: String?,
+    violations: List<WellnessViolation>,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
     onRemove: () -> Unit,
@@ -107,6 +109,8 @@ fun ItemDetailSheet(
             )
 
             HorizontalDivider(color = SheetTheme.divider)
+
+            WellnessPanel(violations = violations)
 
             StorePricesSection(
                 fullProduct = fullProduct,

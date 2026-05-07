@@ -16,7 +16,9 @@ data class Product(
     @SerialName("product_categories")
     val productCategories: ProductCategory,
     @SerialName("store_products")
-    val storeProducts: List<StoreProduct> = emptyList()
+    val storeProducts: List<StoreProduct> = emptyList(),
+    @SerialName("product_nutrition")
+    val productNutrition: ProductNutrition? = null
 ) {
     val bestPrice: Double?
         get() = storeProducts.minOfOrNull { it.salePrice ?: it.price }
@@ -106,4 +108,42 @@ data class Store(
 data class ProductSearchResponse(
     val data: List<Product>,
     val count: Int
+)
+
+/**
+ * Per-product nutrition + allergen data, mirrored from iOS `ProductNutrition`
+ * (Models/Product.swift:3-18). All fields are optional because the backend may
+ * return rows where nutrition has not been populated yet — `null` flags are
+ * treated as "no violation" (benefit of the doubt) by the violation engine.
+ */
+@Serializable
+data class ProductNutrition(
+    @SerialName("serving_size_g")
+    val servingSizeG: Double? = null,
+    @SerialName("servings_per_container")
+    val servingsPerContainer: Double? = null,
+    @SerialName("calories_kcal")
+    val caloriesKcal: Double? = null,
+    @SerialName("protein_g")
+    val proteinG: Double? = null,
+    @SerialName("fat_g")
+    val fatG: Double? = null,
+    @SerialName("carbs_g")
+    val carbsG: Double? = null,
+    @SerialName("fiber_g")
+    val fiberG: Double? = null,
+    @SerialName("sodium_mg")
+    val sodiumMg: Double? = null,
+    @SerialName("cholesterol_mg")
+    val cholesterolMg: Double? = null,
+    @SerialName("sugar_g")
+    val sugarG: Double? = null,
+    @SerialName("contains_dairy")
+    val containsDairy: Boolean? = null,
+    @SerialName("contains_peanuts")
+    val containsPeanuts: Boolean? = null,
+    @SerialName("contains_shellfish")
+    val containsShellfish: Boolean? = null,
+    @SerialName("contains_wheat")
+    val containsWheat: Boolean? = null
 )

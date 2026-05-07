@@ -15,6 +15,20 @@ enum class OptimizationPriority(val label: String) {
         ShortestRoute -> "distance"
         FastestTrip -> "stops"
     }
+
+    companion object {
+        /**
+         * Resolves a stored optimization_mode column value back to an
+         * [OptimizationPriority]. The Supabase column stores the user-facing
+         * label (e.g. "Lowest Cost"), matching iOS `Priority.rawValue`
+         * (PreferencesView.swift:17-19). Unknown values default to
+         * [LowestCost] — same fallback as iOS PreferencesService.swift:83.
+         */
+        fun fromLabel(label: String?): OptimizationPriority {
+            if (label == null) return LowestCost
+            return values().firstOrNull { it.label == label } ?: LowestCost
+        }
+    }
 }
 
 enum class TransportMode(val label: String) {

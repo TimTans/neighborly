@@ -30,3 +30,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 ios/Neighborly/Config/Config.xcconfig
+
+# Local-only catch-up plans (kept on disk for reference, not tracked)
+docs/android-stage1-plan.md
+docs/android-stage2-plan.md

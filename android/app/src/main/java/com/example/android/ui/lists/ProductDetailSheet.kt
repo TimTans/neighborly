@@ -35,7 +35,9 @@ import androidx.compose.ui.unit.dp
 import com.example.android.data.model.Product
 import com.example.android.data.model.StoreProduct
 import com.example.android.data.repository.GroceryProductSummary
+import com.example.android.domain.wellness.WellnessViolation
 import com.example.android.ui.components.ProductImage
+import com.example.android.ui.theme.NeighborlyColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +46,7 @@ fun ProductDetailSheet(
     fullProduct: Product?,
     isLoadingFullProduct: Boolean,
     errorMessage: String?,
+    violations: List<WellnessViolation>,
     onAdd: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -99,6 +102,8 @@ fun ProductDetailSheet(
             }
 
             HorizontalDivider(color = SheetTheme.divider)
+
+            WellnessPanel(violations = violations)
 
             StorePricesSection(
                 fullProduct = fullProduct,
@@ -299,14 +304,20 @@ internal fun SectionHeader(text: String) {
 
 internal fun formatCurrency(value: Double): String = "$${"%.2f".format(value)}"
 
+/**
+ * Shared sheet palette for the bottom-sheet surfaces. All values forward to
+ * [NeighborlyColors] so the sheet matches the theme without duplicating
+ * literals; kept as an internal object so existing call sites
+ * (`SheetTheme.green` etc.) compile unchanged.
+ */
 internal object SheetTheme {
-    val background = Color(0xFFF7F3EC)
-    val cardBackground = Color(0xFFFFFFFF)
-    val green = Color(0xFF0C6A4A)
-    val orange = Color(0xFFE67E22)
-    val textPrimary = Color(0xFF1A1A1A)
-    val textSecondary = Color(0xFF3F5A50)
-    val textMuted = Color(0xFF6B7B73)
-    val divider = Color(0xFFE5E0D6)
-    val outOfStock = Color(0xB3D32F2F)
+    val background get() = NeighborlyColors.Background
+    val cardBackground get() = NeighborlyColors.Surface
+    val green get() = NeighborlyColors.Green
+    val orange get() = NeighborlyColors.Orange
+    val textPrimary get() = NeighborlyColors.TextPrimary
+    val textSecondary get() = NeighborlyColors.SheetTextSecondary
+    val textMuted get() = NeighborlyColors.SheetTextMuted
+    val divider get() = NeighborlyColors.SheetDivider
+    val outOfStock get() = NeighborlyColors.OutOfStock
 }

@@ -13,21 +13,66 @@ import com.example.android.data.local.GroceryListItemRecord
 import com.example.android.data.local.preferences.SharedPreferencesPreferenceRepository
 import com.example.android.data.local.SharedPreferencesGroceryListLocalDataSource
 import com.example.android.data.model.Product
+import com.example.android.data.model.ProductNutrition
 import com.example.android.data.repository.GroceryListRepository
 import com.example.android.data.repository.GroceryProductSummary
 import com.example.android.data.repository.toGroceryProductSummary
 import com.example.android.data.repository.preferences.OptimizationPriority
+import com.example.android.data.repository.preferences.PreferenceRemoteRepository
 import com.example.android.data.repository.preferences.PreferenceRepository
 import com.example.android.data.repository.preferences.PreferenceState
 import com.example.android.data.repository.preferences.TransportMode
 import com.example.android.data.location.UserCoordinates
+import com.example.android.domain.wellness.WellnessViolation
+import com.example.android.domain.wellness.violations
 import com.example.android.viewmodel.route.RouteViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * One row in the wellness warning sheet shown before "Create Route" optimizes.
+ * Mirrors the iOS tuple at GroceryListView.swift:678-693.
+ */
+data class WarningItem(
+    val productId: String,
+    val productName: String,
+    val violations: List<WellnessViolation>,
+)
+
+/**
+ * Pure helper that produces the wellness warning rows for a grocery list.
+ *
+ * - Items without a productId are skipped (no nutrition can ever be looked up
+ *   for them — they were added before products had server IDs).
+ * - Items whose nutrition is *not* yet cached are also skipped. Callers should
+ *   call [ShopperViewModel.ensureNutritionLoaded] first when they need the
+ *   warnings to be exhaustive (e.g. before showing the "Create Route" sheet).
+ * - Allergen violations always fire; nutrient-limit violations only fire when
+ *   `prefs.wellnessEnabled = true` — that gating lives inside
+ *   [com.example.android.domain.wellness.violations] so we just defer to it
+ *   here.
+ */
+internal fun computeRouteWarnings(
+    items: List<GroceryListItemUi>,
+    nutritionCache: Map<String, ProductNutrition?>,
+    prefs: PreferenceState,
+): List<WarningItem> {
+    return items.mapNotNull { item ->
+        val productId = item.productId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        if (!nutritionCache.containsKey(productId)) return@mapNotNull null
+        val nutrition = nutritionCache[productId] ?: return@mapNotNull null
+        val violations = nutrition.violations(prefs)
+        if (violations.isEmpty()) return@mapNotNull null
+        WarningItem(productId = productId, productName = item.name, violations = violations)
+    }
+}
 
 data class CatalogProduct(
     val productId: String?,
@@ -67,7 +112,43 @@ data class ShopperUiState(
     val sheetProduct: Product? = null,
     val isLoadingSheetProduct: Boolean = false,
     val sheetProductError: String? = null,
-    val routeCreationError: String? = null
+    val routeCreationError: String? = null,
+    val swapApplyError: String? = null,
+    /**
+     * Per-`productId` nutrition cache, mirroring iOS `nutritionCache`
+     * (GroceryListView.swift:130). Keys present with a `null` value mean the
+     * server was queried and returned no nutrition payload — recording that
+     * absence prevents redundant refetches.
+     */
+    val nutritionCache: Map<String, ProductNutrition?> = emptyMap(),
+    /**
+     * Non-null while the wellness warning sheet is in front of "Create Route".
+     * Set by [ShopperViewModel.createRoute] when wellness violations exist for
+     * the current grocery list; cleared by either
+     * [ShopperViewModel.confirmRouteCreationDespiteWarnings] (proceed) or
+     * [ShopperViewModel.dismissRouteWarnings] (cancel). Mirrors iOS
+     * `wellnessWarnings` (GroceryListView.swift:678-693).
+     */
+    val pendingRouteWarnings: List<WarningItem>? = null,
+    /**
+     * Set after the first successful (or attempted) `fetch` against Supabase
+     * for the active session — guards against the screen overlaying remote
+     * values on top of in-progress local edits whenever the user revisits the
+     * Preferences screen. Mirrors the iOS `appearedOnce` pattern in
+     * PreferencesView.swift:360-385.
+     */
+    val hasReconciledRemote: Boolean = false,
+    /**
+     * Most recent remote-sync error, or `null` after a successful
+     * fetch/save. The Preferences screen surfaces this near the wellness
+     * card so the user knows when changes failed to upload.
+     */
+    val remoteSyncError: String? = null,
+    /**
+     * `true` while the most recent local edit has been pushed to Supabase
+     * successfully and not yet superseded. Used to render a "Synced" hint.
+     */
+    val isRemoteSynced: Boolean = false
 ) {
     val filteredCatalog: List<CatalogProduct>
         get() = searchResults
@@ -82,7 +163,13 @@ class ShopperViewModel @JvmOverloads constructor(
         application.applicationContext
     ),
     private val networkMonitor: NetworkMonitor? = null,
-    private val api: NeighborlyApi = KtorNeighborlyApi()
+    private val api: NeighborlyApi = KtorNeighborlyApi(),
+    /**
+     * Remote-sync repo. `null` is allowed so unit tests don't need to stand
+     * up a Supabase client. In production [MainActivity] wires the
+     * `SupabasePreferenceRemoteRepository` singleton.
+     */
+    private val remotePreferenceRepository: PreferenceRemoteRepository? = null
 ) : AndroidViewModel(application) {
     var uiState by mutableStateOf(ShopperUiState())
         private set
@@ -269,14 +356,18 @@ class ShopperViewModel @JvmOverloads constructor(
         sheetProductJob = viewModelScope.launch {
             api.getProduct(productId)
                 .onSuccess { product ->
+                    val updatedCache = uiState.nutritionCache + (productId to product.productNutrition)
                     if (uiState.productSheet?.productId == productId ||
                         uiState.itemSheet?.productId == productId
                     ) {
                         uiState = uiState.copy(
                             sheetProduct = product,
                             isLoadingSheetProduct = false,
-                            sheetProductError = null
+                            sheetProductError = null,
+                            nutritionCache = updatedCache
                         )
+                    } else {
+                        uiState = uiState.copy(nutritionCache = updatedCache)
                     }
                 }
                 .onFailure { error ->
@@ -290,6 +381,40 @@ class ShopperViewModel @JvmOverloads constructor(
                     }
                 }
         }
+    }
+
+    /**
+     * Lazily fetches and caches the [ProductNutrition] for [productId]. Mirrors
+     * iOS `loadNutrition(for:)` (GroceryListView.swift:131-148). No-ops if the
+     * key is already cached (even with a `null` value — that means we already
+     * fetched and the server has no nutrition for this product). Errors are
+     * swallowed silently because wellness chips are informational; a failed
+     * fetch should never block the UI or propagate an error to the user.
+     */
+    fun loadNutritionFor(productId: String) {
+        if (productId.isBlank()) return
+        if (uiState.nutritionCache.containsKey(productId)) return
+        viewModelScope.launch {
+            api.getProduct(productId)
+                .onSuccess { product ->
+                    uiState = uiState.copy(
+                        nutritionCache = uiState.nutritionCache + (productId to product.productNutrition)
+                    )
+                }
+        }
+    }
+
+    /**
+     * Returns the wellness violations for the cached nutrition of [productId]
+     * given the user's current preferences. Returns an empty list when
+     * [productId] is null/blank, when nutrition has not yet been fetched, or
+     * when the server returned no nutrition for that product.
+     */
+    fun violationsFor(productId: String?): List<WellnessViolation> {
+        if (productId.isNullOrBlank()) return emptyList()
+        if (!uiState.nutritionCache.containsKey(productId)) return emptyList()
+        val nutrition = uiState.nutritionCache[productId] ?: return emptyList()
+        return nutrition.violations(uiState.preferences)
     }
 
     fun refreshPrices() {
@@ -338,21 +463,96 @@ class ShopperViewModel @JvmOverloads constructor(
             return
         }
 
+        uiState = uiState.copy(routeCreationError = null)
+        // Set pending IDs eagerly so the iOS-style "intercept then continue"
+        // path in [confirmRouteCreationDespiteWarnings] can call
+        // [RouteViewModel.optimizePendingRoute] without re-supplying them.
+        routeViewModel.setPendingProducts(productIds)
+
+        viewModelScope.launch {
+            ensureNutritionLoaded(productIds)
+            val warnings = computeRouteWarnings(
+                items = uiState.groceryList,
+                nutritionCache = uiState.nutritionCache,
+                prefs = uiState.preferences,
+            )
+            if (warnings.isNotEmpty()) {
+                uiState = uiState.copy(pendingRouteWarnings = warnings)
+                return@launch
+            }
+            launchOptimize(routeViewModel, userLocation)
+        }
+    }
+
+    /**
+     * Continues the optimize call that was paused by the wellness warning
+     * sheet. Clears [ShopperUiState.pendingRouteWarnings] and forwards the
+     * already-pending products in the [RouteViewModel] to the backend.
+     */
+    fun confirmRouteCreationDespiteWarnings(
+        routeViewModel: RouteViewModel,
+        userLocation: UserCoordinates?,
+    ) {
+        uiState = uiState.copy(pendingRouteWarnings = null)
+        launchOptimize(routeViewModel, userLocation)
+    }
+
+    /**
+     * User chose to bail out of "Create Route" from the warning sheet. Drops
+     * the pending warnings without firing optimize.
+     */
+    fun dismissRouteWarnings() {
+        if (uiState.pendingRouteWarnings != null) {
+            uiState = uiState.copy(pendingRouteWarnings = null)
+        }
+    }
+
+    private fun launchOptimize(
+        routeViewModel: RouteViewModel,
+        userLocation: UserCoordinates?,
+    ) {
         val preferences = uiState.preferences
         val mode = preferences.priority.toBackendMode()
         val maxStops = preferences.maxStops.toInt().takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
         val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
             .takeIf { it < UNLIMITED_PREFERENCE_SLIDER_VALUE }
 
-        uiState = uiState.copy(routeCreationError = null)
-        routeViewModel.createRoute(
-            productIds = productIds,
+        routeViewModel.optimizePendingRoute(
             userLat = userLocation?.latitude,
             userLng = userLocation?.longitude,
             mode = mode,
             maxStops = maxStops,
-            maxRadiusMiles = maxRadiusMiles
+            maxRadiusMiles = maxRadiusMiles,
         )
+    }
+
+    /**
+     * Eagerly fetches nutrition for any [productIds] not already present in the
+     * cache. Fetches run in parallel — wellness warnings should never serialize
+     * a 20-item list. Failures are silently swallowed; missing nutrition just
+     * means an item gets excluded from warnings, mirroring iOS
+     * `loadNutrition()` (GroceryListView.swift:663-676).
+     */
+    internal suspend fun ensureNutritionLoaded(productIds: List<String>) {
+        val missing = productIds
+            .filter { it.isNotBlank() && !uiState.nutritionCache.containsKey(it) }
+            .distinct()
+        if (missing.isEmpty()) return
+
+        val fetched: Map<String, ProductNutrition?> = coroutineScope {
+            missing.map { id ->
+                async {
+                    id to api.getProduct(id).getOrNull()?.productNutrition
+                }
+            }.awaitAll().toMap()
+        }
+        // Merge — drop entries whose key already showed up via another path
+        // while we were awaiting (loadNutritionFor / loadSheetProduct).
+        val merged = uiState.nutritionCache.toMutableMap()
+        fetched.forEach { (id, nutrition) ->
+            if (!merged.containsKey(id)) merged[id] = nutrition
+        }
+        uiState = uiState.copy(nutritionCache = merged)
     }
 
     fun clearRouteCreationError() {
@@ -385,16 +585,20 @@ class ShopperViewModel @JvmOverloads constructor(
                     val updatedItems = groceryListRepository.replaceProduct(currentItemId, summary)
                     uiState = uiState.copy(
                         groceryList = updatedItems.toUiItems(),
-                        refreshError = null
+                        swapApplyError = null
                     )
                     onComplete(updatedItems.mapNotNull { it.productId })
                 }
                 .onFailure { error ->
                     uiState = uiState.copy(
-                        refreshError = error.message ?: "Unable to apply swap."
+                        swapApplyError = error.message ?: "Unable to apply swap."
                     )
                 }
         }
+    }
+
+    fun clearSwapApplyError() {
+        uiState = uiState.copy(swapApplyError = null)
     }
 
     fun updatePriority(priority: OptimizationPriority) {
@@ -474,9 +678,118 @@ class ShopperViewModel @JvmOverloads constructor(
 
     private fun updatePreferences(transform: (PreferenceState) -> PreferenceState) {
         val updatedPreferences = transform(uiState.preferences)
-        uiState = uiState.copy(preferences = updatedPreferences)
+        // Mark as not-yet-synced; the remote save below resets the flag once
+        // the upsert returns. Local writes always win locally — even if the
+        // network call fails the next launch loads from disk.
+        uiState = uiState.copy(
+            preferences = updatedPreferences,
+            isRemoteSynced = false
+        )
         viewModelScope.launch(Dispatchers.IO) {
             preferenceRepository.savePreferences(updatedPreferences)
+        }
+        // Fan out to Supabase if a userId is known. We capture it eagerly
+        // because edits during sign-out are common during dev and we don't
+        // want a stale id surfacing in the upsert. Errors land on
+        // `remoteSyncError` for the screen to render.
+        val userId = pendingRemoteUserId
+        val repo = remotePreferenceRepository
+        if (userId != null && repo != null) {
+            viewModelScope.launch {
+                repo.save(updatedPreferences, userId)
+                    .onSuccess {
+                        uiState = uiState.copy(
+                            isRemoteSynced = true,
+                            remoteSyncError = null
+                        )
+                    }
+                    .onFailure { error ->
+                        uiState = uiState.copy(
+                            isRemoteSynced = false,
+                            remoteSyncError = error.message
+                                ?: "Could not sync preferences."
+                        )
+                    }
+            }
+        }
+    }
+
+    /**
+     * Tracks the active Supabase user id so [updatePreferences] can fan out
+     * to the remote repo without each toggle handler having to plumb it. Set
+     * by [fetchRemotePreferences].
+     */
+    private var pendingRemoteUserId: String? = null
+
+    /**
+     * Reconcile local preferences with Supabase. Idempotent within a session:
+     * subsequent calls no-op once [ShopperUiState.hasReconciledRemote] is
+     * true so a slider drag isn't clobbered by an out-of-order remote
+     * payload. The Preferences screen invokes this on first composition.
+     *
+     * On fetch failure we keep the local state untouched and surface the
+     * error via [ShopperUiState.remoteSyncError].
+     */
+    fun fetchRemotePreferences(userId: String) {
+        if (userId.isBlank()) return
+        pendingRemoteUserId = userId
+        if (uiState.hasReconciledRemote) return
+        val repo = remotePreferenceRepository ?: run {
+            // No remote repo (tests / disabled build) — mark reconciled so the
+            // screen doesn't keep retrying.
+            uiState = uiState.copy(hasReconciledRemote = true)
+            return
+        }
+        viewModelScope.launch {
+            repo.fetch(userId)
+                .onSuccess { remote ->
+                    if (remote != null) {
+                        uiState = uiState.copy(
+                            preferences = remote,
+                            hasReconciledRemote = true,
+                            remoteSyncError = null,
+                            isRemoteSynced = true
+                        )
+                        // Persist the merged state to disk so the next cold
+                        // launch starts in sync even when offline.
+                        viewModelScope.launch(Dispatchers.IO) {
+                            preferenceRepository.savePreferences(remote)
+                        }
+                    } else {
+                        // First-time user: nothing on the server yet. Push
+                        // the local defaults up so iOS can read them.
+                        uiState = uiState.copy(
+                            hasReconciledRemote = true,
+                            remoteSyncError = null
+                        )
+                        repo.save(uiState.preferences, userId)
+                            .onSuccess {
+                                uiState = uiState.copy(isRemoteSynced = true)
+                            }
+                            .onFailure { error ->
+                                uiState = uiState.copy(
+                                    remoteSyncError = error.message
+                                        ?: "Could not sync preferences."
+                                )
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    // Keep local state, mark reconciled so we don't loop on
+                    // repeated screen opens, surface the error.
+                    uiState = uiState.copy(
+                        hasReconciledRemote = true,
+                        remoteSyncError = error.message
+                            ?: "Could not load preferences."
+                    )
+                }
+        }
+    }
+
+    /** Clear the transient sync banner once the user has acknowledged it. */
+    fun clearRemoteSyncError() {
+        if (uiState.remoteSyncError != null) {
+            uiState = uiState.copy(remoteSyncError = null)
         }
     }
 
