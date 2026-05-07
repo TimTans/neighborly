@@ -50,8 +50,11 @@ struct HomeView: View {
                 RecipeDetailView(recipe: recipe)
             }
             .task(id: preferencesStore.preferences) {
+                // Resolve location before kicking off the load. The .task may
+                // be cancelled when the user switches tabs, but the model's
+                // own Task continues to completion and caches the result.
                 let userLocation = await locationHelper.requestLocation()
-                await viewModel.loadRecipe(
+                viewModel.startLoadIfNeeded(
                     using: preferencesStore.preferences,
                     userLocation: userLocation
                 )
@@ -234,7 +237,7 @@ struct HomeView: View {
                 Button {
                     Task {
                         let userLocation = await locationHelper.requestLocation()
-                        await viewModel.loadRecipe(
+                        viewModel.startLoadIfNeeded(
                             using: preferencesStore.preferences,
                             userLocation: userLocation,
                             force: true
@@ -314,8 +317,10 @@ struct HomeView: View {
 
                     Button {
                         Task {
-                            await viewModel.loadRecipe(
+                            let userLocation = await locationHelper.requestLocation()
+                            viewModel.startLoadIfNeeded(
                                 using: preferencesStore.preferences,
+                                userLocation: userLocation,
                                 force: true
                             )
                         }

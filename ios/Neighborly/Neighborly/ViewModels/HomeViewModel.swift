@@ -32,6 +32,10 @@ final class HomeViewModel {
     var recipeError: String?
 
     private var lastRecipeRequest: RecipeRequestPayload?
+    /// owned by the model so the in-flight request survives view lifecycle
+    /// (e.g. user switching tabs mid-load). without this, .task cancellation
+    /// would discard the response and we'd have wasted backend credits.
+    private var loadTask: Task<Void, Never>?
 
     let userName: String = "John Doe"
     let savingsThisTrip: String = "6.70"
@@ -54,30 +58,53 @@ final class HomeViewModel {
         HomeRouteStop(index: 3, name: "Costco", address: "976 3rd Ave", distance: "2.4 mi", timeEstimate: "15 min", itemsLabel: "2 items")
     ]
 
-    func loadRecipe(
+    /// Kick off a recipe load. Returns immediately — the actual work runs in
+    /// a Task owned by this model, so it survives view disappearance.
+    /// Subsequent calls with the same payload while one is already in-flight
+    /// or already cached are no-ops.
+    @MainActor
+    func startLoadIfNeeded(
         using preferences: Preferences,
         userLocation: CLLocation? = nil,
         force: Bool = false
-    ) async {
+    ) {
         let payload = preferences.recipeRequestPayload(userLocation: userLocation)
-        guard force || payload != lastRecipeRequest || featuredRecipe == nil else {
-            return
+
+        if !force {
+            // already loading the same request → don't fire a duplicate
+            if isLoadingRecipe, payload == lastRecipeRequest { return }
+            // already have a cached result for these prefs → keep it
+            if featuredRecipe != nil, payload == lastRecipeRequest { return }
         }
+
+        // a force or a different payload supersedes any in-flight load
+        loadTask?.cancel()
 
         isLoadingRecipe = true
         recipeError = nil
         lastRecipeRequest = payload
 
-        do {
-            featuredRecipe = try await APIService.generateRecipe(
-                preferences: preferences,
-                userLocation: userLocation
-            )
-        } catch {
-            featuredRecipe = nil
-            recipeError = error.localizedDescription
+        loadTask = Task { [weak self] in
+            do {
+                let recipe = try await APIService.generateRecipe(
+                    preferences: preferences,
+                    userLocation: userLocation
+                )
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self?.featuredRecipe = recipe
+                    self?.isLoadingRecipe = false
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self?.featuredRecipe = nil
+                    self?.recipeError = error.localizedDescription
+                    self?.isLoadingRecipe = false
+                }
+            }
         }
-
-        isLoadingRecipe = false
     }
 }
