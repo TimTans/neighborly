@@ -112,14 +112,14 @@ enum PreferencesService {
         prefs.sugarLimit       = record.sugarLimit ?? ""
 
         prefs.dietVegan      = record.dietVegan ?? false
-        prefs.dietGlutenFree = record.dietGlutenFree ?? true
+        prefs.dietGlutenFree = record.dietGlutenFree ?? false
         prefs.dietLowCarb    = record.dietLowCarb ?? false
         prefs.dietKosher     = record.dietKosher ?? false
         prefs.dietHalal      = record.dietHalal ?? false
         prefs.dietKeto       = record.dietKeto ?? false
 
         prefs.avoidDairy     = record.avoidDairy ?? false
-        prefs.avoidPeanuts   = record.avoidPeanuts ?? true
+        prefs.avoidPeanuts   = record.avoidPeanuts ?? false
         prefs.avoidShellfish = record.avoidShellfish ?? false
         prefs.avoidWheat     = record.avoidWheat ?? false
 

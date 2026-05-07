@@ -107,8 +107,8 @@ struct GroceryListView: View {
     @AppStorage("optimizationMode") private var savedPriority: String = Priority.lowestCost.rawValue
     @AppStorage("maxStops")       private var maxStops: Int    = 5
     @AppStorage("maxRadiusMiles") private var maxRadiusMiles: Double = 10
-    @AppStorage("wellnessEnabled")      private var savedWellnessEnabled: Bool = true
-    @AppStorage("avoidPeanuts")         private var savedAvoidPeanuts: Bool = true
+    @AppStorage("wellnessEnabled")      private var savedWellnessEnabled: Bool = false
+    @AppStorage("avoidPeanuts")         private var savedAvoidPeanuts: Bool = false
     @AppStorage("avoidDairy")           private var savedAvoidDairy: Bool = false
     @AppStorage("avoidShellfish")       private var savedAvoidShellfish: Bool = false
     @AppStorage("avoidWheat")           private var savedAvoidWheat: Bool = false

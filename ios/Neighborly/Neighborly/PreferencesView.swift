@@ -69,21 +69,21 @@ struct Preferences: Equatable, Codable {
     var maxTravelDistanceMiles: Double = 10
     var maxStops: Double = 5
 
-    var wellnessEnabled: Bool = true
+    var wellnessEnabled: Bool = false
 
     var cholesterolLimit: String = ""
     var sodiumLimit: String = ""
     var sugarLimit: String = ""
 
     var dietVegan: Bool = false
-    var dietGlutenFree: Bool = true
+    var dietGlutenFree: Bool = false
     var dietLowCarb: Bool = false
     var dietKosher: Bool = false
     var dietHalal: Bool = false
     var dietKeto: Bool = false
 
     var avoidDairy: Bool = false
-    var avoidPeanuts: Bool = true
+    var avoidPeanuts: Bool = false
     var avoidShellfish: Bool = false
     var avoidWheat: Bool = false
 }
@@ -190,18 +190,18 @@ struct PreferencesOneScrollView: View {
     @AppStorage("walkingEnabled")             private var savedWalkingEnabled: Bool = true
     @AppStorage("publicTransportEnabled")     private var savedPublicTransportEnabled: Bool = true
     @AppStorage("carEnabled")                 private var savedCarEnabled: Bool = true
-    @AppStorage("wellnessEnabled")            private var savedWellnessEnabled: Bool = true
+    @AppStorage("wellnessEnabled")            private var savedWellnessEnabled: Bool = false
     @AppStorage("cholesterolLimit")           private var savedCholesterolLimit: String = ""
     @AppStorage("sodiumLimit")                private var savedSodiumLimit: String = ""
     @AppStorage("sugarLimit")                 private var savedSugarLimit: String = ""
     @AppStorage("dietVegan")                  private var savedDietVegan: Bool = false
-    @AppStorage("dietGlutenFree")             private var savedDietGlutenFree: Bool = true
+    @AppStorage("dietGlutenFree")             private var savedDietGlutenFree: Bool = false
     @AppStorage("dietLowCarb")                private var savedDietLowCarb: Bool = false
     @AppStorage("dietKosher")                 private var savedDietKosher: Bool = false
     @AppStorage("dietHalal")                  private var savedDietHalal: Bool = false
     @AppStorage("dietKeto")                   private var savedDietKeto: Bool = false
     @AppStorage("avoidDairy")                 private var savedAvoidDairy: Bool = false
-    @AppStorage("avoidPeanuts")               private var savedAvoidPeanuts: Bool = true
+    @AppStorage("avoidPeanuts")               private var savedAvoidPeanuts: Bool = false
     @AppStorage("avoidShellfish")             private var savedAvoidShellfish: Bool = false
     @AppStorage("avoidWheat")                 private var savedAvoidWheat: Bool = false
     @State private var prefs = Preferences()
