@@ -6,6 +6,7 @@ from app.routes import (
     categories,
     fdc,
     grocery_lists,
+    price_reports,
     products,
     recipes,
     routes,
@@ -31,6 +32,7 @@ app.include_router(products.router)
 app.include_router(stores.router)
 app.include_router(categories.router)
 app.include_router(grocery_lists.router)
+app.include_router(price_reports.router)
 app.include_router(scraper.router)
 app.include_router(routes.router)
 app.include_router(recipes.router)
