@@ -17,6 +17,9 @@ struct RouteView: View {
     @State private var directionsRoute: MapboxDirectionsService.DirectionsRoute?
     @State private var directionsMode: TransportMode = .walking
     @State private var checkedItemIds: Set<String> = []
+    @State private var reportingItem: PriceReportingTarget?
+    @State private var priceReportSummary: [PriceReportPairKey: PriceReportSummary] = [:]
+    @State private var reportPopoverKey: PriceReportPairKey?
 
     var body: some View {
         NavigationStack {
@@ -41,6 +44,25 @@ struct RouteView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .sheet(item: $reportingItem) { target in
+                PriceReportSheet(
+                    item: target.item,
+                    storeProductId: target.item.storeProductId,
+                    storeName: target.storeName,
+                    onSubmitted: { submittedPrice in
+                        Task {
+                            await refreshSummary(
+                                for: PriceReportPair(
+                                    productId: target.item.productId,
+                                    storeId:   target.storeId
+                                ),
+                                optimisticPrice: submittedPrice
+                            )
+                        }
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let route = routeState.optimizedRoute {
                     tripBanner(route)
@@ -49,6 +71,12 @@ struct RouteView: View {
             .onChange(of: routeState.optimizedRoute) { _, _ in
                 // a fresh optimization is a fresh trip
                 checkedItemIds = []
+                priceReportSummary = [:]
+            }
+            .task(id: routeState.optimizedRoute) {
+                if let route = routeState.optimizedRoute {
+                    await loadSummary(for: route)
+                }
             }
         }
     }
@@ -262,7 +290,7 @@ struct RouteView: View {
 
             // Item rows: leading checkbox toggles, rest of row taps to swap
             ForEach(stop.items) { item in
-                stopItemRow(item)
+                stopItemRow(item, in: stop)
             }
         }
         .padding(16)
@@ -271,7 +299,7 @@ struct RouteView: View {
     }
 
     @ViewBuilder
-    private func stopItemRow(_ item: RouteItem) -> some View {
+    private func stopItemRow(_ item: RouteItem, in stop: RouteStop) -> some View {
         let checked = checkedItemIds.contains(item.id)
 
         HStack(spacing: 10) {
@@ -293,51 +321,66 @@ struct RouteView: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                Task { await loadAlternatives(for: item) }
-            } label: {
-                HStack(spacing: 10) {
-                    routeItemThumbnail(item)
-                        .frame(width: 32, height: 32)
-                        .background(NeighborlyTheme.greenSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+            HStack(spacing: 10) {
+                routeItemThumbnail(item)
+                    .frame(width: 32, height: 32)
+                    .background(NeighborlyTheme.greenSoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(item.name)
-                            .font(.caption)
-                            .foregroundStyle(NeighborlyTheme.textPrimary)
-                            .lineLimit(1)
-                            .strikethrough(checked, color: NeighborlyTheme.textMuted)
-                        Text(item.unitSize)
-                            .font(.caption2)
-                            .foregroundStyle(NeighborlyTheme.textMuted)
-                    }
-
-                    Spacer()
-
-                    if let sale = item.salePrice {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Text(sale, format: .currency(code: "USD"))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(NeighborlyTheme.green)
-                            Text(item.price, format: .currency(code: "USD"))
-                                .font(.caption2)
-                                .foregroundStyle(NeighborlyTheme.textMuted)
-                                .strikethrough()
-                        }
-                    } else {
-                        Text(item.price, format: .currency(code: "USD"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(NeighborlyTheme.green)
-                    }
-
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.name)
+                        .font(.caption)
+                        .foregroundStyle(NeighborlyTheme.textPrimary)
+                        .lineLimit(1)
+                        .strikethrough(checked, color: NeighborlyTheme.textMuted)
+                    Text(item.unitSize)
                         .font(.caption2)
                         .foregroundStyle(NeighborlyTheme.textMuted)
                 }
-                .opacity(checked ? 0.55 : 1)
+
+                Spacer()
+
+                if let sale = item.salePrice {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(sale, format: .currency(code: "USD"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(NeighborlyTheme.green)
+                        Text(item.price, format: .currency(code: "USD"))
+                            .font(.caption2)
+                            .foregroundStyle(NeighborlyTheme.textMuted)
+                            .strikethrough()
+                    }
+                } else {
+                    Text(item.price, format: .currency(code: "USD"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(NeighborlyTheme.green)
+                }
+
+                if let storeId = stop.store.id,
+                   let summary = priceReportSummary[PriceReportPairKey(
+                       productId: item.productId,
+                       storeId:   storeId
+                   )],
+                   summary.count > 0 {
+                    reportBadge(summary: summary)
+                }
+
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
             }
-            .buttonStyle(.plain)
+            .opacity(checked ? 0.55 : 1)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                Task { await loadAlternatives(for: item) }
+            }
+        }
+        .contextMenu {
+            Button {
+                openReport(for: item, in: stop)
+            } label: {
+                Label("Report inaccurate price", systemImage: "exclamationmark.bubble")
+            }
         }
     }
 
@@ -476,6 +519,126 @@ struct RouteView: View {
         case "refrigerated": return "🧊"
         case "snacks": return "🍿"
         default: return "🛒"
+        }
+    }
+
+    // MARK: - Price Report Helpers
+
+    private func openReport(for item: RouteItem, in stop: RouteStop) {
+        guard let storeId = stop.store.id else { return }
+        reportingItem = PriceReportingTarget(
+            item:      item,
+            storeId:   storeId,
+            storeName: stop.store.name
+        )
+    }
+
+    @ViewBuilder
+    private func reportBadge(summary: PriceReportSummary) -> some View {
+        let key = PriceReportPairKey(productId: summary.productId, storeId: summary.storeId)
+        let isShowing = Binding<Bool>(
+            get: { reportPopoverKey == key },
+            set: { if !$0 { reportPopoverKey = nil } }
+        )
+
+        Button {
+            reportPopoverKey = key
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: "exclamationmark.bubble.fill")
+                    .font(.caption2)
+                Text("\(summary.count)")
+                    .font(.caption2.weight(.semibold))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(NeighborlyTheme.orangeSoft)
+            .foregroundStyle(NeighborlyTheme.orange)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: isShowing) {
+            reportPopoverContent(summary: summary)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder
+    private func reportPopoverContent(summary: PriceReportSummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.bubble.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NeighborlyTheme.orange)
+                Text("\(summary.count) \(summary.count == 1 ? "person" : "people") reported")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(NeighborlyTheme.textSecondary)
+            }
+            Text(summary.latestReportedPrice, format: .currency(code: "USD"))
+                .font(.title2.weight(.heavy))
+                .foregroundStyle(NeighborlyTheme.orange)
+            if let relative = relativeTimeString(from: summary.latestReportedAt) {
+                Text("last reported \(relative)")
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 180)
+    }
+
+    @MainActor
+    private func loadSummary(for route: OptimizedRoute) async {
+        var pairs: [PriceReportPair] = []
+        for stop in route.stops {
+            guard let storeId = stop.store.id else { continue }
+            for item in stop.items {
+                pairs.append(PriceReportPair(
+                    productId: item.productId,
+                    storeId:   storeId
+                ))
+            }
+        }
+        guard !pairs.isEmpty else { return }
+        do {
+            let summaries = try await APIService.getPriceReportSummary(pairs: pairs)
+            var lookup: [PriceReportPairKey: PriceReportSummary] = [:]
+            for s in summaries {
+                lookup[PriceReportPairKey(productId: s.productId, storeId: s.storeId)] = s
+            }
+            priceReportSummary = lookup
+        } catch {
+            // silent: no badges if the fetch fails.
+        }
+    }
+
+    @MainActor
+    private func refreshSummary(
+        for pair: PriceReportPair,
+        optimisticPrice: Double? = nil
+    ) async {
+        let key = PriceReportPairKey(productId: pair.productId, storeId: pair.storeId)
+
+        // immediate optimistic bump so the badge reflects the user's submission
+        // before the server response lands.
+        if let optimisticPrice {
+            let prior = priceReportSummary[key]
+            priceReportSummary[key] = PriceReportSummary(
+                productId: pair.productId,
+                storeId:   pair.storeId,
+                count:     (prior?.count ?? 0) + 1,
+                latestReportedPrice: optimisticPrice,
+                latestReportedAt:    ISO8601DateFormatter().string(from: Date())
+            )
+        }
+
+        do {
+            let summaries = try await APIService.getPriceReportSummary(pairs: [pair])
+            if let updated = summaries.first {
+                priceReportSummary[key] = updated
+            }
+        } catch {
+            // silent: keep the optimistic value if the refresh fails.
         }
     }
 }
@@ -950,6 +1113,16 @@ fileprivate func formatDuration(_ seconds: Double) -> String {
     return remMin == 0 ? "\(hrs) hr" : "\(hrs) hr \(remMin) min"
 }
 
+fileprivate func relativeTimeString(from iso: String) -> String? {
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = parser.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+    guard let date else { return nil }
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .short
+    return formatter.localizedString(for: date, relativeTo: .now)
+}
+
 fileprivate func formatDistance(_ meters: Double) -> String {
     guard meters > 0 else { return "" }
     let miles = meters / 1609.34
@@ -971,6 +1144,13 @@ private extension Color {
         let b = Double(value & 0xFF) / 255
         self = Color(red: r, green: g, blue: b)
     }
+}
+
+struct PriceReportingTarget: Identifiable {
+    let id = UUID()
+    let item: RouteItem
+    let storeId: String
+    let storeName: String
 }
 
 #Preview {
