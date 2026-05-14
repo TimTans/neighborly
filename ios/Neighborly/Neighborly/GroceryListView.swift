@@ -130,6 +130,7 @@ struct GroceryListView: View {
     @State private var nutritionLoaded = false
     @State private var wellnessWarnings: [(name: String, reasons: [String])] = []
     @State private var showWellnessWarning = false
+    @FocusState private var searchFocused: Bool
 
     private var currentPrefs: Preferences {
         var p = Preferences()
@@ -240,6 +241,9 @@ struct GroceryListView: View {
             TextField("Search products to add...", text: $searchText)
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onSubmit { searchFocused = false }
 
             if isSearching {
                 ProgressView()
@@ -253,6 +257,7 @@ struct GroceryListView: View {
                     searchError = nil
                     searchPage = 1
                     searchTotalCount = 0
+                    searchFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(NeighborlyTheme.textMuted)
@@ -275,6 +280,7 @@ struct GroceryListView: View {
             LazyVStack(spacing: 0) {
                 ForEach(searchResults) { result in
                     Button {
+                        searchFocused = false
                         detailSubject = DetailSubject(kind: .search(result))
                     } label: {
                         HStack(spacing: 12) {
@@ -352,6 +358,7 @@ struct GroceryListView: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     /// Shows the product image if available, otherwise a category emoji.
