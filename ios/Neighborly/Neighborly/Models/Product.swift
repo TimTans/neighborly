@@ -237,6 +237,7 @@ struct RouteStop: Codable, Identifiable, Equatable, Sendable {
 struct RouteItem: Codable, Identifiable, Hashable, Sendable {
     var id: String { productId }
     let productId: String
+    let storeProductId: String
     let name: String
     let brand: String?
     let unitSize: String

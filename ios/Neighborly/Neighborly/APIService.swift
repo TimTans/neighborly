@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import Supabase
 
 enum APIError: Error, LocalizedError {
     case invalidURL
@@ -24,6 +25,20 @@ enum APIService {
         d.keyDecodingStrategy = .convertFromSnakeCase
         return d
     }()
+
+    private static func authorizedRequest(url: URL, method: String) async throws -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let session = try? await supabase.auth.session {
+            request.setValue(
+                "Bearer \(session.accessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+        }
+        return request
+    }
 
     static func searchProducts(
         query: String,
@@ -169,5 +184,46 @@ enum APIService {
         }
 
         return try decoder.decode(RecipeSuggestion.self, from: data)
+    }
+
+    static func submitPriceReport(
+        storeProductId: String,
+        reportedPrice: Double,
+        photoPath: String?
+    ) async throws -> PriceReportSubmitResponse {
+        let url = AppConfig.apiBaseURL.appendingPathComponent("price-reports")
+        var request = try await authorizedRequest(url: url, method: "POST")
+
+        let body = PriceReportSubmitRequest(
+            storeProductId: storeProductId,
+            reportedPrice:  reportedPrice,
+            photoPath:      photoPath
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.serverError(statusCode: http.statusCode)
+        }
+        return try decoder.decode(PriceReportSubmitResponse.self, from: data)
+    }
+
+    static func getPriceReportSummary(
+        pairs: [PriceReportPair]
+    ) async throws -> [PriceReportSummary] {
+        let url = AppConfig.apiBaseURL
+            .appendingPathComponent("price-reports")
+            .appendingPathComponent("summary")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["pairs": pairs])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.serverError(statusCode: http.statusCode)
+        }
+        return try decoder.decode(PriceReportSummaryResponse.self, from: data).summaries
     }
 }
