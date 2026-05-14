@@ -6,7 +6,10 @@ interface RouteRepository {
     suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double?,
-        userLng: Double?
+        userLng: Double?,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
     ): Result<RoutePlan>
 
     suspend fun getSwapAlternatives(productId: String): Result<List<RouteSwapOption>>
@@ -21,24 +24,28 @@ data class RouteSwapOption(
 )
 
 /**
- * Temporary Epic C seam while Worker A/B land API and persisted grocery-list plumbing.
- * Replace this with a repository backed by NeighborlyApi.optimizeRoute/getAlternatives.
+ * Fallback / test seam used before [ApiRouteRepository] was wired up. Kept around
+ * so tests and offline scenarios can opt out of network calls without throwing
+ * surprises at runtime — production code should depend on [ApiRouteRepository].
  */
 class UnavailableRouteRepository : RouteRepository {
     override suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double?,
-        userLng: Double?
+        userLng: Double?,
+        mode: String?,
+        maxStops: Int?,
+        maxRadiusMiles: Double?
     ): Result<RoutePlan> = Result.failure(
         IllegalStateException(
-            "Route optimization API is not wired yet. Connect NeighborlyApi.optimizeRoute once Epic A4 is available."
+            "Route optimization API is not wired in this build. Inject ApiRouteRepository instead."
         )
     )
 
     override suspend fun getSwapAlternatives(productId: String): Result<List<RouteSwapOption>> =
         Result.failure(
             IllegalStateException(
-                "Swap alternatives API is not wired yet. Connect NeighborlyApi.getAlternatives once Epic A4 is available."
+                "Swap alternatives API is not wired in this build. Inject ApiRouteRepository instead."
             )
         )
 }

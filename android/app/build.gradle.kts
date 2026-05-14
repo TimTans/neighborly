@@ -22,6 +22,7 @@ android {
         var supabaseUrl = "https://placeholder.supabase.co"
         var supabaseAnonKey = ""
         var apiBaseUrl = ""
+        var mapboxAccessToken = ""
         if (envFile.exists()) {
             envFile.readLines()
                 .filter { it.contains("=") && !it.trim().startsWith("#") }
@@ -32,6 +33,7 @@ android {
                             "SUPABASE_URL" -> supabaseUrl = parts[1].trim().removeSurrounding("\"")
                             "SUPABASE_ANON_KEY" -> supabaseAnonKey = parts[1].trim().removeSurrounding("\"")
                             "API_BASE_URL" -> apiBaseUrl = parts[1].trim().removeSurrounding("\"")
+                            "MAPBOX_ACCESS_TOKEN" -> mapboxAccessToken = parts[1].trim().removeSurrounding("\"")
                         }
                     }
                 }
@@ -39,6 +41,7 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.replace("\"", "\\\"")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey.replace("\"", "\\\"")}\"")
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "MAPBOX_ACCESS_TOKEN", "\"${mapboxAccessToken.replace("\"", "\\\"")}\"")
     }
 
     buildTypes {
@@ -72,6 +75,11 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.coil.compose)
+    implementation(libs.mapbox.android)
+    implementation(libs.mapbox.compose)
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
 
     // Jetpack Compose
@@ -90,6 +98,7 @@ dependencies {
     // Supabase
     implementation(platform("io.github.jan-tennert.supabase:bom:2.0.2"))
     implementation("io.github.jan-tennert.supabase:gotrue-kt")
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.core)
@@ -97,6 +106,8 @@ dependencies {
     implementation(libs.ktor.client.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.kotlinx.serialization.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

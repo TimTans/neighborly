@@ -49,5 +49,11 @@ data class OptimizeRouteRequest(
     @SerialName("user_lat")
     val userLat: Double? = null,
     @SerialName("user_lng")
-    val userLng: Double? = null
+    val userLng: Double? = null,
+    @SerialName("mode")
+    val mode: String? = null,
+    @SerialName("max_stops")
+    val maxStops: Int? = null,
+    @SerialName("max_radius_miles")
+    val maxRadiusMiles: Double? = null
 )

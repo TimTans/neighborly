@@ -30,8 +30,29 @@ data class LoginUiState(
     val errorMessage: String? = null,
     val infoMessage: String? = null,
     val displayName: String = "User",
-    val initials: String = "U"
+    val initials: String = "U",
+    /**
+     * Supabase user UUID for the active session, or `null` when no session
+     * has been hydrated yet. Consumers use it as the `user_id` row key for
+     * cross-platform Postgrest reads/writes (see
+     * [com.example.android.data.repository.preferences.PreferenceRemoteRepository]).
+     */
+    val userId: String? = null,
+    val passwordResetSent: Boolean = false,
+    val passwordResetError: String? = null,
+    val passwordResetSentToEmail: String? = null,
+    val isSendingPasswordReset: Boolean = false
 )
+
+/** Lightweight email shape check used by [LoginViewModel.requestPasswordReset]. */
+fun isLikelyEmail(email: String): Boolean {
+    val trimmed = email.trim()
+    if (trimmed.isBlank()) return false
+    if (!trimmed.contains("@")) return false
+    val parts = trimmed.split("@")
+    if (parts.size != 2) return false
+    return parts[0].isNotBlank() && parts[1].isNotBlank()
+}
 
 class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -55,7 +76,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                         ?: "User",
                     initials = session?.user?.toInitials()
                         ?: storedInitials
-                        ?: "U"
+                        ?: "U",
+                    userId = session?.user?.id
                 )
             }
         }
@@ -133,14 +155,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                                 isLoggedIn = true,
                                 isLoading = false,
                                 displayName = user.toDisplayName(),
-                                initials = user.toInitials()
+                                initials = user.toInitials(),
+                                userId = user.id
                             )
                         }
                     } else {
+                        val confirmEmail = state.email
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
-                                infoMessage = "Check your email to confirm your account before signing in.",
+                                infoMessage = "Check your email — we sent a confirmation link to $confirmEmail. After confirming, sign in.",
                                 isSignUp = false,
                                 password = "",
                                 confirmPassword = ""
@@ -173,6 +197,61 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun requestPasswordReset(email: String) {
+        val trimmed = email.trim()
+        if (!isLikelyEmail(trimmed)) {
+            _uiState.update {
+                it.copy(
+                    passwordResetError = "Enter a valid email address",
+                    passwordResetSent = false,
+                    passwordResetSentToEmail = null
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSendingPasswordReset = true,
+                    passwordResetError = null,
+                    passwordResetSent = false
+                )
+            }
+            runCatching {
+                supabase.auth.resetPasswordForEmail(trimmed)
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isSendingPasswordReset = false,
+                        passwordResetSent = true,
+                        passwordResetSentToEmail = trimmed,
+                        passwordResetError = null
+                    )
+                }
+            }.onFailure { e ->
+                _uiState.update {
+                    it.copy(
+                        isSendingPasswordReset = false,
+                        passwordResetSent = false,
+                        passwordResetSentToEmail = null,
+                        passwordResetError = e.message ?: "Could not send reset link"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearPasswordResetMessages() {
+        _uiState.update {
+            it.copy(
+                passwordResetSent = false,
+                passwordResetError = null,
+                passwordResetSentToEmail = null
+            )
+        }
+    }
+
     fun signOut() {
         viewModelScope.launch {
             runCatching { supabase.auth.signOut() }
@@ -182,7 +261,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     isLoggedIn = false,
                     password = "",
                     confirmPassword = "",
-                    infoMessage = null
+                    infoMessage = null,
+                    userId = null
                 )
             }
         }
@@ -207,7 +287,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 isLoggedIn = session != null || authPrefs.getBoolean(KEY_IS_LOGGED_IN, false),
                 isLoading = false,
                 displayName = displayName,
-                initials = initials
+                initials = initials,
+                userId = user?.id ?: it.userId
             )
         }
     }

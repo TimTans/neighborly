@@ -39,22 +39,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.android.data.model.categoryEmojiForSlug
 import com.example.android.data.repository.route.RouteSwapOption
+import com.example.android.ui.components.ProductImage
+import com.example.android.ui.theme.NeighborlyColors
 import com.example.android.viewmodel.route.OptimizedRouteStop
 import com.example.android.viewmodel.route.RouteMissingItem
 import com.example.android.viewmodel.route.RoutePlan
 import com.example.android.viewmodel.route.RouteStopItem
 import com.example.android.viewmodel.route.RouteViewModel
+import com.example.android.viewmodel.shopper.ShopperViewModel
 
-private val NeighborlyBackground = Color(0xFFF7F3EC)
-private val NeighborlyGreen = Color(0xFF0C6A4A)
-private val NeighborlyGreenSoft = Color(0xFFE0F1E8)
-private val NeighborlyOrange = Color(0xFFE67E22)
-private val NeighborlyInk = Color(0xFF1A1A1A)
+private val NeighborlyBackground = NeighborlyColors.Background
+private val NeighborlyGreen = NeighborlyColors.Green
+private val NeighborlyGreenSoft = NeighborlyColors.GreenSoft
+private val NeighborlyOrange = NeighborlyColors.Orange
+private val NeighborlyInk = NeighborlyColors.TextPrimary
 
 @Composable
 fun RouteScreen(
     routeViewModel: RouteViewModel,
+    shopperViewModel: ShopperViewModel,
     modifier: Modifier = Modifier
 ) {
     val state = routeViewModel.uiState
@@ -91,16 +96,52 @@ fun RouteScreen(
                 }
             }
 
+            val shopperState = shopperViewModel.uiState
             if (
                 state.selectedSwapProductId != null ||
                 state.isLoadingSwapOptions ||
-                state.swapErrorMessage != null
+                state.swapErrorMessage != null ||
+                shopperState.swapApplyError != null
             ) {
                 SwapAlternativesDialog(
                     isLoading = state.isLoadingSwapOptions,
                     options = state.swapOptions,
-                    errorMessage = state.swapErrorMessage,
-                    onDismiss = routeViewModel::dismissSwapAlternatives
+                    // Surface load errors (RouteVM) and apply errors (ShopperVM) in the
+                    // same slot — apply errors are user-actionable in the same context.
+                    errorMessage = shopperState.swapApplyError ?: state.swapErrorMessage,
+                    onDismiss = {
+                        routeViewModel.dismissSwapAlternatives()
+                        shopperViewModel.clearSwapApplyError()
+                    },
+                    onSelectOption = { option ->
+                        // The route's selected swap product id is the *current* product id of
+                        // the item being swapped. Resolve it back to the persisted grocery-list
+                        // record id so the repository knows which row to mutate. If the item
+                        // has no product id (e.g. legacy entries), there is nothing to swap.
+                        val currentProductId = state.selectedSwapProductId
+                        val currentItemId = shopperViewModel.findItemIdByProductId(currentProductId)
+                        if (currentItemId == null) {
+                            routeViewModel.dismissSwapAlternatives()
+                            return@SwapAlternativesDialog
+                        }
+                        val preferences = shopperViewModel.uiState.preferences
+                        val mode = preferences.priority.toBackendMode()
+                        val maxStops = preferences.maxStops.toInt().takeIf { it < 11 }
+                        val maxRadiusMiles = preferences.maxTravelDistanceMiles.toDouble()
+                            .takeIf { preferences.maxTravelDistanceMiles.toInt() < 11 }
+                        shopperViewModel.clearSwapApplyError()
+                        shopperViewModel.applySwap(currentItemId, option.productId) { newProductIds ->
+                            routeViewModel.setPendingProducts(newProductIds)
+                            routeViewModel.optimizePendingRoute(
+                                mode = mode,
+                                maxStops = maxStops,
+                                maxRadiusMiles = maxRadiusMiles,
+                            )
+                            // Only dismiss after a successful swap; on failure the
+                            // dialog stays open so the user sees swapApplyError.
+                            routeViewModel.dismissSwapAlternatives()
+                        }
+                    }
                 )
             }
         }
@@ -123,7 +164,14 @@ private fun RouteContent(
         }
 
         item {
-            RouteMapPlaceholder(stops = route.stops)
+            MapboxRouteMap(
+                stops = route.stops,
+                userLocation = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(24.dp))
+            )
         }
 
         items(route.stops, key = { stop -> "${stop.index}-${stop.storeId}-${stop.storeName}" }) { stop ->
@@ -156,7 +204,7 @@ private fun RouteSummaryCard(route: RoutePlan, errorMessage: String?, onRetry: (
                 verticalAlignment = Alignment.Top
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Total trip cost", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF5F6F67))
+                    Text("Total trip cost", style = MaterialTheme.typography.bodyMedium, color = NeighborlyColors.RouteSummaryLabel)
                     Text(
                         text = route.totalCost.formatMoneyOrDash(),
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
@@ -200,49 +248,6 @@ private fun SummaryPill(text: String) {
 }
 
 @Composable
-private fun RouteMapPlaceholder(stops: List<OptimizedRouteStop>) {
-    val stopsWithCoordinates = stops.filter { it.latitude != null && it.longitude != null }
-
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFECF5EF)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Map, contentDescription = null, tint = NeighborlyGreen)
-                Text(
-                    "Map preview",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = NeighborlyInk
-                )
-            }
-            Text(
-                text = if (stopsWithCoordinates.isEmpty()) {
-                    "Route data is ready for map rendering once stop coordinates arrive from the API."
-                } else {
-                    "Showing ${stopsWithCoordinates.size} coordinate-backed stop pins. SDK polyline rendering can replace this bounded placeholder."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF4F7E6B)
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                stopsWithCoordinates.forEach { stop ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StopNumber(index = stop.index)
-                        Text(
-                            text = "${stop.storeName}: ${"%.4f".format(stop.latitude)}, ${"%.4f".format(stop.longitude)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NeighborlyInk
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -259,7 +264,7 @@ private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Uni
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(stop.storeName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                     stop.address?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777777))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.TextSecondary)
                     }
                     Text(
                         text = listOfNotNull(
@@ -277,7 +282,7 @@ private fun RouteStopCard(stop: OptimizedRouteStop, onSwapItem: (String?) -> Uni
                 )
             }
 
-            Divider(color = Color(0xFFE9E2D8))
+            Divider(color = NeighborlyColors.RouteDivider)
 
             stop.items.forEach { item ->
                 RouteItemRow(item = item, onSwapItem = onSwapItem)
@@ -296,13 +301,20 @@ private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        ProductImage(
+            imageUrl = item.imageUrl,
+            contentDescription = item.name,
+            fallbackEmoji = categoryEmojiForSlug(item.categorySlug),
+            size = 48.dp
+        )
+        Spacer(modifier = Modifier.size(2.dp))
         Icon(Icons.Filled.LocationOn, contentDescription = null, tint = NeighborlyGreen, modifier = Modifier.size(18.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(item.name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
             Text(
                 text = listOfNotNull("Qty ${item.quantity}", item.unitSize).joinToString(" • "),
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF777777)
+                color = NeighborlyColors.TextSecondary
             )
             if (item.swapAvailable) {
                 Text("Swap available", style = MaterialTheme.typography.bodySmall, color = NeighborlyOrange)
@@ -310,7 +322,7 @@ private fun RouteItemRow(item: RouteStopItem, onSwapItem: (String?) -> Unit) {
         }
         Column(horizontalAlignment = Alignment.End) {
             item.originalPrice?.takeIf { original -> item.price != null && original > item.price }?.let {
-                Text(it.formatMoneyOrDash(), style = MaterialTheme.typography.bodySmall, color = Color(0xFF999999))
+                Text(it.formatMoneyOrDash(), style = MaterialTheme.typography.bodySmall, color = NeighborlyColors.RouteStrike)
             }
             Text(item.price.formatMoneyOrDash(), style = MaterialTheme.typography.bodyLarge, color = NeighborlyGreen)
         }
@@ -334,7 +346,7 @@ private fun MissingItemsCard(items: List<RouteMissingItem>) {
                 Text(
                     text = "${item.name}${item.reason?.let { ": $it" } ?: ""}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF777777)
+                    color = NeighborlyColors.TextSecondary
                 )
             }
         }
@@ -363,7 +375,7 @@ private fun EmptyRouteCard(message: String?, hasPendingProducts: Boolean, onRetr
             Text(
                 text = message ?: "Create a route from grocery-list product IDs once Worker B's persisted list is wired.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF4F7E6B),
+                color = NeighborlyColors.MapText,
                 textAlign = TextAlign.Center
             )
             Button(
@@ -413,7 +425,8 @@ private fun SwapAlternativesDialog(
     isLoading: Boolean,
     options: List<RouteSwapOption>,
     errorMessage: String?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSelectOption: (RouteSwapOption) -> Unit
 ) {
     androidx.compose.material.AlertDialog(
         onDismissRequest = onDismiss,
@@ -428,12 +441,18 @@ private fun SwapAlternativesDialog(
                     errorMessage != null -> Text(errorMessage, color = NeighborlyOrange)
                     options.isEmpty() -> Text("No alternatives returned for this product yet.")
                     else -> options.forEach { option ->
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectOption(option) }
+                                .padding(vertical = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(option.name, fontWeight = FontWeight.SemiBold)
                             Text(
                                 listOfNotNull(option.storeName, option.price.formatMoneyOrDash(), option.reason).joinToString(" • "),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF777777)
+                                color = NeighborlyColors.TextSecondary
                             )
                         }
                     }

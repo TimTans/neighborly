@@ -5,6 +5,8 @@ import com.example.android.data.model.OptimizedRoute
 import com.example.android.data.model.OptimizeRouteRequest
 import com.example.android.data.model.Product
 import com.example.android.data.model.ProductSearchResponse
+import com.example.android.data.model.RecipeRequestPayload
+import com.example.android.data.model.RecipeSuggestion
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
@@ -43,10 +45,15 @@ interface NeighborlyApi {
     suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double? = null,
-        userLng: Double? = null
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
     ): Result<OptimizedRoute>
 
     suspend fun getAlternatives(productId: String): Result<List<Product>>
+
+    suspend fun generateRecipe(payload: RecipeRequestPayload): Result<RecipeSuggestion>
 }
 
 sealed class NeighborlyApiError(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -102,7 +109,10 @@ class KtorNeighborlyApi(
     override suspend fun optimizeRoute(
         productIds: List<String>,
         userLat: Double?,
-        userLng: Double?
+        userLng: Double?,
+        mode: String?,
+        maxStops: Int?,
+        maxRadiusMiles: Double?
     ): Result<OptimizedRoute> = request {
         post {
             neighborlyUrl("routes", "optimize")
@@ -111,7 +121,10 @@ class KtorNeighborlyApi(
                 OptimizeRouteRequest(
                     productIds = productIds,
                     userLat = userLat,
-                    userLng = userLng
+                    userLng = userLng,
+                    mode = mode,
+                    maxStops = maxStops,
+                    maxRadiusMiles = maxRadiusMiles
                 )
             )
         }
@@ -120,6 +133,14 @@ class KtorNeighborlyApi(
     override suspend fun getAlternatives(productId: String): Result<List<Product>> = request {
         get {
             neighborlyUrl("products", productId, "alternatives")
+        }
+    }
+
+    override suspend fun generateRecipe(payload: RecipeRequestPayload): Result<RecipeSuggestion> = request {
+        post {
+            neighborlyUrl("recipes", "generate")
+            contentType(ContentType.Application.Json)
+            setBody(payload)
         }
     }
 

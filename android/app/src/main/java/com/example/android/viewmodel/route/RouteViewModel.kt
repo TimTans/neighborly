@@ -5,9 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.android.data.repository.route.ApiRouteRepository
 import com.example.android.data.repository.route.RouteRepository
 import com.example.android.data.repository.route.RouteSwapOption
-import com.example.android.data.repository.route.UnavailableRouteRepository
 import kotlinx.coroutines.launch
 
 data class RoutePlan(
@@ -62,7 +62,9 @@ data class RouteStopItem(
     val unitSize: String?,
     val price: Double?,
     val originalPrice: Double?,
-    val swapAvailable: Boolean = false
+    val swapAvailable: Boolean = false,
+    val imageUrl: String? = null,
+    val categorySlug: String? = null
 )
 
 data class RouteMissingItem(
@@ -86,14 +88,21 @@ data class RouteUiState(
 }
 
 class RouteViewModel(
-    private val routeRepository: RouteRepository = UnavailableRouteRepository()
+    private val routeRepository: RouteRepository = ApiRouteRepository()
 ) : ViewModel() {
     var uiState by mutableStateOf(RouteUiState())
         private set
 
-    fun createRoute(productIds: List<String>, userLat: Double? = null, userLng: Double? = null) {
+    fun createRoute(
+        productIds: List<String>,
+        userLat: Double? = null,
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
+    ) {
         setPendingProducts(productIds)
-        optimizePendingRoute(userLat, userLng)
+        optimizePendingRoute(userLat, userLng, mode, maxStops, maxRadiusMiles)
     }
 
     fun setPendingProducts(productIds: List<String>) {
@@ -109,7 +118,13 @@ class RouteViewModel(
         )
     }
 
-    fun optimizePendingRoute(userLat: Double? = null, userLng: Double? = null) {
+    fun optimizePendingRoute(
+        userLat: Double? = null,
+        userLng: Double? = null,
+        mode: String? = null,
+        maxStops: Int? = null,
+        maxRadiusMiles: Double? = null
+    ) {
         val productIds = uiState.pendingProductIds
         if (productIds.isEmpty()) {
             uiState = uiState.copy(
@@ -121,7 +136,14 @@ class RouteViewModel(
 
         uiState = uiState.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
-            routeRepository.optimizeRoute(productIds, userLat, userLng)
+            routeRepository.optimizeRoute(
+                productIds = productIds,
+                userLat = userLat,
+                userLng = userLng,
+                mode = mode,
+                maxStops = maxStops,
+                maxRadiusMiles = maxRadiusMiles
+            )
                 .onSuccess { submitOptimizedRoute(it) }
                 .onFailure { failure ->
                     uiState = uiState.copy(
