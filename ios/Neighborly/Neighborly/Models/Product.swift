@@ -191,14 +191,31 @@ struct PriceHistoryPoint: Codable, Hashable, Sendable {
     /// effective price: prefers sale price when present.
     var effectivePrice: Double? { salePrice ?? price }
 
-    /// supabase timestamps may or may not include fractional seconds, so try both.
+    /// supabase timestamps may or may not include fractional seconds, and rows
+    /// from postgres `timestamp` columns arrive with no timezone designator at
+    /// all. fall through several parsers, treating naive timestamps as utc.
     var recordedDate: Date? {
         let isoFractional = ISO8601DateFormatter()
         isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = isoFractional.date(from: recordedAt) { return d }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
-        return iso.date(from: recordedAt)
+        if let d = iso.date(from: recordedAt) { return d }
+
+        // naive timestamps from postgres `timestamp without time zone`,
+        // e.g. "2026-03-25T10:51:44.116785" or "2026-03-25T10:51:44".
+        let naive = DateFormatter()
+        naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = TimeZone(identifier: "UTC")
+        for fmt in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSSS",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSS",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS",
+                    "yyyy-MM-dd'T'HH:mm:ss"] {
+            naive.dateFormat = fmt
+            if let d = naive.date(from: recordedAt) { return d }
+        }
+        return nil
     }
 }
 

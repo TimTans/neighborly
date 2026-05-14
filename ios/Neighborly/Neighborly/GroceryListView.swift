@@ -1213,6 +1213,7 @@ struct PriceHistorySection: View {
 
     @State private var series: [PriceHistorySeries] = []
     @State private var loadState: LoadState = .loading
+    @State private var usingFallbackWindow: Bool = false
 
     enum LoadState { case loading, loaded, failed }
 
@@ -1279,27 +1280,36 @@ struct PriceHistorySection: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 chart
-                legend
+                caption
             }
         }
     }
 
-    /// flatten series → (date, price, store) datums, dropping points whose
-    /// timestamp couldn't parse or whose effective price is nil.
+    /// collapse all per-store points into one datum per calendar day, taking
+    /// the lowest effective price seen across any store on that day.
     private var plottable: [Datum] {
-        series.flatMap { s in
-            s.points.compactMap { p -> Datum? in
-                guard let date = p.recordedDate, let price = p.effectivePrice else { return nil }
-                return Datum(date: date, price: price, store: s.displayName)
+        let cal = Calendar.current
+        var byDay: [Date: Double] = [:]
+        for s in series {
+            for p in s.points {
+                guard let date = p.recordedDate, let price = p.effectivePrice else { continue }
+                let day = cal.startOfDay(for: date)
+                if let existing = byDay[day] {
+                    byDay[day] = min(existing, price)
+                } else {
+                    byDay[day] = price
+                }
             }
         }
+        return byDay
+            .map { Datum(date: $0.key, price: $0.value) }
+            .sorted { $0.date < $1.date }
     }
 
     private struct Datum: Identifiable {
         let id = UUID()
         let date: Date
         let price: Double
-        let store: String
     }
 
     private var chart: some View {
@@ -1308,14 +1318,20 @@ struct PriceHistorySection: View {
                 x: .value("Date", d.date),
                 y: .value("Price", d.price)
             )
-            .foregroundStyle(by: .value("Store", d.store))
+            .foregroundStyle(NeighborlyTheme.green)
             .interpolationMethod(.monotone)
-            .symbol(by: .value("Store", d.store))
+            .lineStyle(StrokeStyle(lineWidth: 2))
+
+            PointMark(
+                x: .value("Date", d.date),
+                y: .value("Price", d.price)
+            )
+            .foregroundStyle(NeighborlyTheme.green)
+            .symbolSize(60)
         }
         .chartYAxis {
             AxisMarks(format: .currency(code: "USD"))
         }
-        .chartLegend(.hidden)
         .frame(height: 180)
         .padding(.vertical, 8)
         .padding(.horizontal, 4)
@@ -1323,27 +1339,34 @@ struct PriceHistorySection: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    private var legend: some View {
-        let stores = Array(Set(plottable.map { $0.store })).sorted()
-        return HStack(spacing: 12) {
-            ForEach(stores, id: \.self) { name in
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(NeighborlyTheme.green)
-                        .frame(width: 7, height: 7)
-                    Text(name)
-                        .font(.caption2)
-                        .foregroundStyle(NeighborlyTheme.textSecondary)
-                }
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Lowest price across stores, per day.")
+                .font(.caption2)
+                .foregroundStyle(NeighborlyTheme.textSecondary)
+            if usingFallbackWindow {
+                Text("No points in selected window, showing all available history.")
+                    .font(.caption2)
+                    .foregroundStyle(NeighborlyTheme.textMuted)
             }
-            Spacer()
         }
     }
 
     private func load() async {
         loadState = .loading
+        usingFallbackWindow = false
         do {
-            series = try await APIService.getPriceHistory(productId: productId, days: days)
+            let initial = try await APIService.getPriceHistory(productId: productId, days: days)
+            let hasPoints = initial.contains { !$0.points.isEmpty }
+            if hasPoints || days >= 365 {
+                series = initial
+            } else {
+                // selected window is empty, widen to the max so any history we have
+                // still renders as dots/lines instead of a "no data" message.
+                let fallback = try await APIService.getPriceHistory(productId: productId, days: 365)
+                series = fallback
+                usingFallbackWindow = fallback.contains { !$0.points.isEmpty }
+            }
             loadState = .loaded
         } catch {
             loadState = .failed
