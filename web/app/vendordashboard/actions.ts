@@ -4,6 +4,26 @@ import { createClient } from '@/lib/supabase/server'
 
 const SALE_PRICE_ERROR = 'Sale price must be lower than the regular price.'
 
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>
+
+async function recordPriceHistory(
+  supabase: SupabaseClient,
+  rows: Array<{ storeProductId: string; price: number; salePrice: number | null; recordedAt: string }>
+) {
+  if (rows.length === 0) return null
+
+  const { error } = await supabase
+    .from('store_product_price_history')
+    .insert(rows.map((row) => ({
+      store_product_id: row.storeProductId,
+      price: row.price,
+      sale_price: row.salePrice,
+      recorded_at: row.recordedAt,
+    })))
+
+  return error?.message ?? null
+}
+
 async function requireVendor() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -206,7 +226,8 @@ export async function addCatalogProduct(
   const pricingError = validateProductPricing(price, salePrice)
   if (pricingError) return { error: pricingError }
 
-  const { error: insertError } = await supabase
+  const now = new Date().toISOString()
+  const { data: insertedRows, error: insertError } = await supabase
     .from('store_products')
     .insert({
       store_id: storeId,
@@ -215,8 +236,9 @@ export async function addCatalogProduct(
       sale_price: salePrice,
       in_stock: inStock,
       data_source: 'vendor',
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
+    .select('id')
 
   if (insertError) {
     if (insertError.code === '23505') {
@@ -224,6 +246,17 @@ export async function addCatalogProduct(
     }
     return { error: insertError.message }
   }
+  const inserted = insertedRows?.[0]
+  if (!inserted) return { error: 'Product was not added.' }
+
+  const historyError = await recordPriceHistory(supabase, [{
+    storeProductId: inserted.id,
+    price,
+    salePrice,
+    recordedAt: now,
+  }])
+  if (historyError) return { error: `Product was added, but history could not be saved: ${historyError}` }
+
   return { success: true }
 }
 
@@ -278,7 +311,8 @@ export async function createAndAddProduct(data: {
   if (productError || !product) return { error: productError?.message || 'Failed to create product' }
 
   // Add to store
-  const { error: storeProductError } = await supabase
+  const now = new Date().toISOString()
+  const { data: storeProductRows, error: storeProductError } = await supabase
     .from('store_products')
     .insert({
       store_id: storeId,
@@ -287,10 +321,22 @@ export async function createAndAddProduct(data: {
       sale_price: data.salePrice ?? null,
       in_stock: data.inStock ?? true,
       data_source: 'vendor',
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
+    .select('id')
 
   if (storeProductError) return { error: storeProductError.message }
+  const storeProduct = storeProductRows?.[0]
+  if (!storeProduct) return { error: 'Product was created, but could not be added to your store.' }
+
+  const historyError = await recordPriceHistory(supabase, [{
+    storeProductId: storeProduct.id,
+    price: data.price,
+    salePrice: data.salePrice ?? null,
+    recordedAt: now,
+  }])
+  if (historyError) return { error: `Product was added, but history could not be saved: ${historyError}` }
+
   return { success: true }
 }
 
@@ -556,6 +602,15 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
       } else if (!updatedRows || updatedRows.length === 0) {
         failed.push({ rowIndex: row.rowIndex, reason: 'Product not found or not owned by this store.' })
       } else {
+        const historyError = await recordPriceHistory(supabase, [{
+          storeProductId: row.storeProductId,
+          price: row.price,
+          salePrice: row.salePrice,
+          recordedAt: now,
+        }])
+        if (historyError) {
+          failed.push({ rowIndex: row.rowIndex, reason: `Price updated, but history could not be saved: ${historyError}` })
+        }
         updated++
       }
     })
@@ -581,12 +636,26 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
           data_source: 'vendor',
           updated_at: now,
         })))
-        .select('id')
+        .select('id, price, sale_price')
 
       if (insertError) {
         validAdds.forEach((row) => failed.push({ rowIndex: row.rowIndex, reason: insertError.message }))
       } else {
         added += inserted?.length ?? 0
+        const historyError = await recordPriceHistory(
+          supabase,
+          (inserted ?? []).map((storeProduct) => ({
+            storeProductId: storeProduct.id,
+            price: Number(storeProduct.price),
+            salePrice: storeProduct.sale_price === null ? null : Number(storeProduct.sale_price),
+            recordedAt: now,
+          }))
+        )
+        if (historyError) {
+          validAdds.forEach((row) =>
+            failed.push({ rowIndex: row.rowIndex, reason: `Product added, but history could not be saved: ${historyError}` })
+          )
+        }
       }
     }
   }
@@ -645,7 +714,7 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
       continue
     }
 
-    const { error: storeProductError } = await supabase
+    const { data: storeProductRows, error: storeProductError } = await supabase
       .from('store_products')
       .insert({
         store_id: storeId,
@@ -656,10 +725,25 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
         data_source: 'vendor',
         updated_at: now,
       })
+      .select('id')
 
     if (storeProductError) {
       failed.push({ rowIndex: row.rowIndex, reason: storeProductError.message })
     } else {
+      const storeProduct = storeProductRows?.[0]
+      if (!storeProduct) {
+        failed.push({ rowIndex: row.rowIndex, reason: 'Product was created, but could not be added to your store.' })
+        continue
+      }
+      const historyError = await recordPriceHistory(supabase, [{
+        storeProductId: storeProduct.id,
+        price: row.price,
+        salePrice: row.salePrice,
+        recordedAt: now,
+      }])
+      if (historyError) {
+        failed.push({ rowIndex: row.rowIndex, reason: `Product created, but history could not be saved: ${historyError}` })
+      }
       created++
     }
   }

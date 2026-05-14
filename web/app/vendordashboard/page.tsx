@@ -345,14 +345,7 @@ const VendorDashboard: React.FC = () => {
     if (e.key === "Escape") cancelEdit();
   };
 
-  const loadPriceHistory = async (storeProductId: string) => {
-    if (historyOpen === storeProductId) {
-      setHistoryOpen(null);
-      return;
-    }
-    setHistoryOpen(storeProductId);
-    if (priceHistories[storeProductId]) return;
-
+  const fetchPriceHistory = useCallback(async (storeProductId: string) => {
     setPriceHistoryLoading((prev) => ({ ...prev, [storeProductId]: true }));
     setPriceHistoryErrors((prev) => ({ ...prev, [storeProductId]: null }));
 
@@ -363,6 +356,17 @@ const VendorDashboard: React.FC = () => {
       setPriceHistories((prev) => ({ ...prev, [storeProductId]: (res.data || []) as PriceHistoryEntry[] }));
     }
     setPriceHistoryLoading((prev) => ({ ...prev, [storeProductId]: false }));
+  }, []);
+
+  const loadPriceHistory = async (storeProductId: string) => {
+    if (historyOpen === storeProductId) {
+      setHistoryOpen(null);
+      return;
+    }
+    setHistoryOpen(storeProductId);
+    if (priceHistories[storeProductId]) return;
+
+    await fetchPriceHistory(storeProductId);
   };
 
   const exportInventory = (format: "csv" | "xlsx") => {
@@ -429,7 +433,13 @@ const VendorDashboard: React.FC = () => {
 
   const handleImportComplete = useCallback(async () => {
     await refreshProducts();
-  }, [refreshProducts]);
+    setPriceHistories({});
+    setPriceHistoryErrors({});
+    setPriceHistoryLoading({});
+    if (historyOpen) {
+      await fetchPriceHistory(historyOpen);
+    }
+  }, [fetchPriceHistory, historyOpen, refreshProducts]);
 
   const openStoreInfoModal = () => {
     setStoreForm({
