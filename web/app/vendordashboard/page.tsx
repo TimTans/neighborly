@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ImportModal from "./components/ImportModal";
 import PaginationControls from "./components/PaginationControls";
+import PriceHistoryChart from "./components/PriceHistoryChart";
 import ProductModal, { type NewProductFormValues } from "./components/ProductModal";
 import ReviewsTab from "./components/ReviewsTab";
 import StoreInfoTab from "./components/StoreInfoTab";
@@ -12,7 +13,6 @@ import { SALES_PER_PAGE } from "./constants";
 import {
   catColor,
   csvEscape,
-  fmtDate,
   fmtTime,
   srcLabel,
   srcPillClass,
@@ -40,12 +40,15 @@ const VendorDashboard: React.FC = () => {
   const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [priceHistories, setPriceHistories] = useState<Record<string, PriceHistoryEntry[]>>({});
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState<Record<string, boolean>>({});
+  const [priceHistoryErrors, setPriceHistoryErrors] = useState<Record<string, string | null>>({});
 
   /* ── UI state ── */
   const [activeTab, setActiveTab] = useState<string>("products");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState<string>("");
   const [editSale, setEditSale] = useState<string>("");
+  const [editError, setEditError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -240,27 +243,73 @@ const VendorDashboard: React.FC = () => {
     setEditingId(p.id);
     setEditPrice(p.price.toFixed(2));
     setEditSale(p.sale_price ? p.sale_price.toFixed(2) : "");
+    setEditError(null);
   };
 
-  const cancelEdit = () => setEditingId(null);
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditError(null);
+  };
 
   const saveEdit = async (id: string) => {
     const np = parseFloat(editPrice);
-    if (isNaN(np)) return;
+    if (isNaN(np) || np <= 0) {
+      setEditError("Enter a valid regular price greater than 0.");
+      return;
+    }
     const ns = editSale.trim() ? parseFloat(editSale) : null;
-    if (ns !== null && isNaN(ns)) return;
+    if (ns !== null && (isNaN(ns) || ns <= 0)) {
+      setEditError("Sale price must be greater than 0.");
+      return;
+    }
+    if (ns !== null && ns >= np) {
+      setEditError("Sale price must be lower than the regular price.");
+      return;
+    }
 
     const res = await updateProductPrice(id, np, ns);
     if ('success' in res) {
+      const updatedAt = res.data?.updated_at ?? res.history?.created_at ?? new Date().toISOString();
+      const savedPrice = Number(res.data?.price ?? np);
+      const savedSalePrice =
+        res.data?.sale_price === null || res.data?.sale_price === undefined
+          ? null
+          : Number(res.data.sale_price);
       setStoreProducts((prev) =>
         prev.map((p) =>
           p.id === id
-            ? { ...p, price: np, sale_price: ns, data_source: "vendor", updated_at: new Date().toISOString() }
+            ? { ...p, price: savedPrice, sale_price: savedSalePrice, data_source: "vendor", updated_at: updatedAt }
             : p
         )
       );
+      setPriceHistories((prev) => {
+        const existing = prev[id];
+        if (!existing) return prev;
+        const historyEntry = res.history ?? {
+          price: savedPrice,
+          sale_price: savedSalePrice,
+          created_at: updatedAt,
+        };
+        return {
+          ...prev,
+          [id]: [...existing, historyEntry as PriceHistoryEntry],
+        };
+      });
+      setEditError(null);
+      setEditingId(null);
+      return;
     }
-    setEditingId(null);
+    setEditError(res.error ?? "Unable to save this price.");
+  };
+
+  const updateEditPrice = (value: string) => {
+    setEditPrice(value);
+    if (editError) setEditError(null);
+  };
+
+  const updateEditSale = (value: string) => {
+    setEditSale(value);
+    if (editError) setEditError(null);
   };
 
   const toggleStock = async (id: string) => {
@@ -301,13 +350,19 @@ const VendorDashboard: React.FC = () => {
       setHistoryOpen(null);
       return;
     }
-    if (!priceHistories[storeProductId]) {
-      const res = await getProductPriceHistory(storeProductId);
-      if (res.data && res.data.length > 0) {
-        setPriceHistories((prev) => ({ ...prev, [storeProductId]: res.data as PriceHistoryEntry[] }));
-      }
-    }
     setHistoryOpen(storeProductId);
+    if (priceHistories[storeProductId]) return;
+
+    setPriceHistoryLoading((prev) => ({ ...prev, [storeProductId]: true }));
+    setPriceHistoryErrors((prev) => ({ ...prev, [storeProductId]: null }));
+
+    const res = await getProductPriceHistory(storeProductId);
+    if ("error" in res && res.error) {
+      setPriceHistoryErrors((prev) => ({ ...prev, [storeProductId]: res.error || "Unable to load price history." }));
+    } else {
+      setPriceHistories((prev) => ({ ...prev, [storeProductId]: (res.data || []) as PriceHistoryEntry[] }));
+    }
+    setPriceHistoryLoading((prev) => ({ ...prev, [storeProductId]: false }));
   };
 
   const exportInventory = (format: "csv" | "xlsx") => {
@@ -880,7 +935,9 @@ const VendorDashboard: React.FC = () => {
             </div>
           ) : pagedProducts.map((p) => {
             const isEditing = editingId === p.id;
-            const hasHistory = !!priceHistories[p.id] && priceHistories[p.id].length > 0;
+            const historyEntries = priceHistories[p.id] ?? [];
+            const historyError = priceHistoryErrors[p.id] ?? null;
+            const isHistoryLoading = !!priceHistoryLoading[p.id];
             const isHistoryOpen = historyOpen === p.id;
 
             return (
@@ -904,7 +961,7 @@ const VendorDashboard: React.FC = () => {
                         <input
                           ref={priceInputRef}
                           value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
+                          onChange={(e) => updateEditPrice(e.target.value)}
                           onKeyDown={(e) => handleEditKeydown(e, p.id)}
                           className="w-16 border border-stone-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-right bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10"
                         />
@@ -923,7 +980,7 @@ const VendorDashboard: React.FC = () => {
                         <input
                           value={editSale}
                           placeholder="—"
-                          onChange={(e) => setEditSale(e.target.value)}
+                          onChange={(e) => updateEditSale(e.target.value)}
                           onKeyDown={(e) => handleEditKeydown(e, p.id)}
                           className="w-16 border border-stone-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-right bg-stone-50 outline-none focus:border-green-700 focus:ring-2 focus:ring-green-700/10"
                         />
@@ -1019,6 +1076,17 @@ const VendorDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                {isEditing && editError && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 my-1 mb-2 flex items-center gap-2 text-sm text-red-700">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>{editError}</span>
+                  </div>
+                )}
+
                 {pendingDeleteId === p.id && (
                   <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 my-1 mb-2 flex items-center gap-2 text-sm text-red-700">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
@@ -1032,24 +1100,13 @@ const VendorDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {/* Price history panel */}
-                {isHistoryOpen && hasHistory && (
-                  <div className="bg-stone-50 rounded-xl p-4 my-1 mb-2 border border-stone-100">
-                    <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-3">
-                      Price History — {p.name}
-                    </div>
-                    <div className="flex gap-3">
-                      {priceHistories[p.id].map((h, i) => (
-                        <div key={i} className="flex-1 bg-white rounded-xl p-3.5 border border-stone-100">
-                          <div className="text-[11px] text-stone-400 mb-1">{fmtDate(h.created_at)}</div>
-                          <div className="font-semibold text-[15px]">${h.price.toFixed(2)}</div>
-                          {h.sale_price && (
-                            <div className="text-xs text-green-800 font-semibold mt-1">Sale: ${h.sale_price.toFixed(2)}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                {isHistoryOpen && (
+                  <PriceHistoryChart
+                    productName={p.name}
+                    history={historyEntries}
+                    loading={isHistoryLoading}
+                    error={historyError}
+                  />
                 )}
               </div>
             );

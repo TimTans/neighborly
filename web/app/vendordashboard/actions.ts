@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+const SALE_PRICE_ERROR = 'Sale price must be lower than the regular price.'
+
 async function requireVendor() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -77,9 +79,9 @@ export async function getProductPriceHistory(storeProductId: string) {
 
   const { data, error: queryError } = await supabase
     .from('store_product_price_history')
-    .select('price, sale_price, created_at')
+    .select('price, sale_price, created_at:recorded_at')
     .eq('store_product_id', storeProductId)
-    .order('created_at', { ascending: true })
+    .order('recorded_at', { ascending: true })
 
   if (queryError) return { error: queryError.message, data: [] }
   return { data: data || [] }
@@ -123,18 +125,41 @@ export async function updateProductPrice(storeProductId: string, price: number, 
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
+  const pricingError = validateProductPricing(price, salePrice)
+  if (pricingError) return { error: pricingError }
+
+  const now = new Date().toISOString()
   const { data: updatedRows, error: updateError } = await supabase
     .from('store_products')
-    .update({ price, sale_price: salePrice, data_source: 'vendor', updated_at: new Date().toISOString() })
+    .update({ price, sale_price: salePrice, data_source: 'vendor', updated_at: now })
     .eq('id', storeProductId)
     .eq('store_id', storeId)
-    .select('id')
+    .select('id, price, sale_price, updated_at')
 
   if (updateError) return { error: updateError.message }
   if (!updatedRows || updatedRows.length === 0) {
     return { error: 'Product not found or not owned by this store.' }
   }
-  return { success: true }
+
+  const { data: historyRows, error: historyError } = await supabase
+    .from('store_product_price_history')
+    .insert({
+      store_product_id: storeProductId,
+      price,
+      sale_price: salePrice,
+      recorded_at: now,
+    })
+    .select('price, sale_price, created_at:recorded_at')
+
+  if (historyError) {
+    return { error: `Price was updated, but history could not be saved: ${historyError.message}` }
+  }
+
+  return {
+    success: true,
+    data: updatedRows[0],
+    history: historyRows?.[0] ?? { price, sale_price: salePrice, created_at: now },
+  }
 }
 
 export async function toggleProductStock(storeProductId: string, inStock: boolean) {
@@ -178,6 +203,9 @@ export async function addCatalogProduct(
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
 
+  const pricingError = validateProductPricing(price, salePrice)
+  if (pricingError) return { error: pricingError }
+
   const { error: insertError } = await supabase
     .from('store_products')
     .insert({
@@ -210,6 +238,9 @@ export async function createAndAddProduct(data: {
 }) {
   const { error, supabase, storeId } = await requireVendor()
   if (error || !supabase || !storeId) return { error: error || 'Unknown error' }
+
+  const pricingError = validateProductPricing(data.price, data.salePrice ?? null)
+  if (pricingError) return { error: pricingError }
 
   // Find or create the category
   let categoryId: string
@@ -338,8 +369,12 @@ function isPositiveNumber(value: number) {
   return Number.isFinite(value) && value > 0
 }
 
-function isValidSalePrice(value: number | null) {
-  return value === null || isPositiveNumber(value)
+function validateProductPricing(price: number, salePrice: number | null) {
+  if (!isPositiveNumber(price)) return 'Price must be greater than 0.'
+  if (salePrice === null) return null
+  if (!isPositiveNumber(salePrice)) return 'Sale price must be greater than 0.'
+  if (salePrice >= price) return SALE_PRICE_ERROR
+  return null
 }
 
 async function fetchAllRows<T>(
@@ -497,8 +532,9 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
 
   await Promise.all(
     payload.updates.map(async (row) => {
-      if (!UUID_RE.test(row.storeProductId) || !isPositiveNumber(row.price) || !isValidSalePrice(row.salePrice)) {
-        failed.push({ rowIndex: row.rowIndex, reason: 'Invalid update payload' })
+      const pricingError = validateProductPricing(row.price, row.salePrice)
+      if (!UUID_RE.test(row.storeProductId) || pricingError) {
+        failed.push({ rowIndex: row.rowIndex, reason: pricingError || 'Invalid update payload' })
         return
       }
 
@@ -527,8 +563,9 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
 
   if (payload.adds.length > 0) {
     const validAdds = payload.adds.filter((row) => {
-      const valid = UUID_RE.test(row.catalogProductId) && isPositiveNumber(row.price) && isValidSalePrice(row.salePrice)
-      if (!valid) failed.push({ rowIndex: row.rowIndex, reason: 'Invalid add payload' })
+      const pricingError = validateProductPricing(row.price, row.salePrice)
+      const valid = UUID_RE.test(row.catalogProductId) && !pricingError
+      if (!valid) failed.push({ rowIndex: row.rowIndex, reason: pricingError || 'Invalid add payload' })
       return valid
     })
 
@@ -557,9 +594,10 @@ export async function bulkImportProducts(payload: BulkImportPayload): Promise<{
   for (const row of payload.creates) {
     const name = row.name.trim()
     const category = row.category.trim()
+    const pricingError = validateProductPricing(row.price, row.salePrice)
 
-    if (!name || !category || !isPositiveNumber(row.price) || !isValidSalePrice(row.salePrice)) {
-      failed.push({ rowIndex: row.rowIndex, reason: 'Invalid create payload' })
+    if (!name || !category || pricingError) {
+      failed.push({ rowIndex: row.rowIndex, reason: pricingError || 'Invalid create payload' })
       continue
     }
 
