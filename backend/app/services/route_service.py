@@ -91,7 +91,7 @@ async def optimize_lowest_cost(
 
     # fetch all store_products for the requested product IDs in one query
     result = sb.table("store_products").select(
-        "price, sale_price, in_stock, store_id, product_id, "
+        "id, price, sale_price, in_stock, store_id, product_id, "
         "stores(id, name, chain, store_number, zip_code, address, lat, lng), "
         "products(id, name, brand, unit_size, image_url, "
         "product_categories(slug))"
@@ -201,7 +201,7 @@ async def optimize_fewest_stops(
     sb = get_supabase()
 
     result = sb.table("store_products").select(
-        "price, sale_price, in_stock, store_id, product_id, "
+        "id, price, sale_price, in_stock, store_id, product_id, "
         "stores(id, name, chain, store_number, zip_code, address, lat, lng), "
         "products(id, name, brand, unit_size, image_url, "
         "product_categories(slug))"
@@ -341,7 +341,7 @@ async def optimize_shortest_distance(
     sb = get_supabase()
 
     result = sb.table("store_products").select(
-        "price, sale_price, in_stock, store_id, product_id, "
+        "id, price, sale_price, in_stock, store_id, product_id, "
         "stores(id, name, chain, store_number, zip_code, address, lat, lng), "
         "products(id, name, brand, unit_size, image_url, "
         "product_categories(slug))"
@@ -463,6 +463,7 @@ def _assign_to_stop(stops: dict, offering: dict) -> None:
     category = product.get("product_categories") or {}
 
     item = {
+        "store_product_id": offering["id"],
         "product_id": product["id"],
         "name": product["name"],
         "brand": product.get("brand"),

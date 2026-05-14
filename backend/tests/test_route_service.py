@@ -107,6 +107,7 @@ def _make_offering(store_id, product_id, price, sale_price, lat, lng,
                    product_name="item", store_name="store"):
     """helper to build a fake store_products row."""
     return {
+        "id": f"sp-{store_id}-{product_id}",
         "store_id": store_id,
         "product_id": product_id,
         "price": price,
@@ -342,3 +343,14 @@ async def test_lowest_cost_no_route_when_all_stores_beyond_radius():
         )
     assert result["no_route"] is True
     assert result["no_route_reason"] == "max_radius"
+
+
+@pytest.mark.asyncio
+async def test_lowest_cost_returns_store_product_id_on_items():
+    offerings = [
+        _make_offering("s1", "p1", 3.00, None, 40.0, -74.0, "milk", "store a"),
+    ]
+    with _mock_supabase(offerings):
+        result = await optimize_lowest_cost(["p1"], 40.0, -74.0)
+    item = result["stops"][0]["items"][0]
+    assert item["store_product_id"] == "sp-s1-p1"
