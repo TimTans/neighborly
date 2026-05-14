@@ -30,6 +30,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "app/raida/page.jsx"  ],
   "exclude": ["node_modules"]
 }
